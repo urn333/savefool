@@ -6,6 +6,7 @@
 - 启发式讲解生成
 - 分层诊断
 - 90秒闭环诊断流程
+- 变形题生成与可信度评分
 """
 
 # OCR引擎
@@ -75,6 +76,32 @@ from src.domain.engines.diagnosis_engine import (
     DiagnosisProgress,
 )
 
+# 变形题生成引擎
+from src.domain.engines.variant_generator import (
+    VariantGenerator,
+    GenerationConfig,
+    VariantGenerationOutput,
+)
+from src.domain.engines.variant_credibility import (
+    CredibilityEvaluator,
+    CredibilityRating,
+    CredibilityFactors,
+    CredibilityHistory,
+    StarRating,
+)
+from src.domain.engines.variant_validator import (
+    VariantValidator,
+    ValidationResult,
+)
+from src.domain.engines.variant_strategies import (
+    VariantStrategy,
+    StrategyContext,
+    StrategyResult,
+    NumericVariationStrategy,
+    InverseOperationStrategy,
+    ContextTransferStrategy,
+)
+
 __all__ = [
     # OCR引擎
     "OCREngine",
@@ -125,12 +152,25 @@ __all__ = [
     # 主诊断引擎
     "DiagnosisEngine",
     "DiagnosisConfig",
-    "DiagnosisStage",
-    "DiagnosisStageResult",
-    "DetectedError",
-    "ErrorLocation",
-    "AttributionResult",
-    "Explanation",
-    "LayeredOption",
-    "DiagnosisPath",
+    "DiagnosisProgress",
+    # 变形题生成
+    "VariantGenerator",
+    "GenerationConfig",
+    "VariantGenerationOutput",
+    # 可信度评分
+    "CredibilityEvaluator",
+    "CredibilityRating",
+    "CredibilityFactors",
+    "CredibilityHistory",
+    "StarRating",
+    # 变形题验证
+    "VariantValidator",
+    "ValidationResult",
+    # 变形策略
+    "VariantStrategy",
+    "StrategyContext",
+    "StrategyResult",
+    "NumericVariationStrategy",
+    "InverseOperationStrategy",
+    "ContextTransferStrategy",
 ]
