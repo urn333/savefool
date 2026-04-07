@@ -1,0 +1,535 @@
+{% extends "base.html" %}
+
+{% block title %}诊断结果 - AI助教系统{% endblock %}
+
+{% block extra_css %}
+.result-summary {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+    padding: 20px 0;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 20px;
+}
+
+.summary-item h3 {
+    font-size: 2rem;
+    color: #667eea;
+}
+
+.summary-item p {
+    color: #666;
+    margin-top: 4px;
+}
+
+.question-item {
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 16px;
+}
+
+.question-item.error {
+    border-color: #e74c3c;
+    background: #fdf2f2;
+}
+
+.question-item.correct {
+    border-color: #27ae60;
+    background: #f0fff4;
+}
+
+.question-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.question-number {
+    font-weight: 600;
+    color: #333;
+}
+
+.question-status {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.question-status.error {
+    background: #fee;
+    color: #c33;
+}
+
+.question-status.correct {
+    background: #efe;
+    color: #3c3;
+}
+
+.question-content {
+    font-size: 1.1rem;
+    margin-bottom: 12px;
+}
+
+.answer-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.answer-box {
+    padding: 12px;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.answer-box.student {
+    background: #fff3cd;
+}
+
+.answer-box.correct {
+    background: #d4edda;
+}
+
+.answer-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.answer-value {
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.diagnosis-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.diagnosis-title {
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #333;
+}
+
+.diagnosis-options {
+    display: grid;
+    gap: 12px;
+}
+
+.diagnosis-option {
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.diagnosis-option:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+}
+
+.diagnosis-option.selected {
+    border-color: #667eea;
+    background: #f0f3ff;
+}
+
+.option-label {
+    font-weight: 600;
+    color: #667eea;
+    margin-bottom: 4px;
+}
+
+.option-desc {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.explanation-box {
+    background: #f8f9ff;
+    border-radius: 10px;
+    padding: 20px;
+    margin-top: 16px;
+}
+
+.explanation-title {
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.explanation-steps {
+    list-style: none;
+    counter-reset: step;
+}
+
+.explanation-steps li {
+    padding: 12px 0;
+    padding-left: 40px;
+    position: relative;
+    border-bottom: 1px dashed #ddd;
+}
+
+.explanation-steps li:last-child {
+    border-bottom: none;
+}
+
+.explanation-steps li::before {
+    counter-increment: step;
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 28px;
+    height: 28px;
+    background: #667eea;
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+}
+
+.tips-box {
+    background: #fffbeb;
+    border-left: 4px solid #f59e0b;
+    padding: 16px;
+    margin-top: 16px;
+    border-radius: 0 8px 8px 0;
+}
+
+.tips-title {
+    font-weight: 600;
+    color: #b45309;
+    margin-bottom: 8px;
+}
+
+.tips-list {
+    list-style: none;
+}
+
+.tips-list li {
+    padding: 4px 0;
+    padding-left: 20px;
+    position: relative;
+}
+
+.tips-list li::before {
+    content: "💡";
+    position: absolute;
+    left: 0;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+.empty-state-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.loading-state {
+    text-align: center;
+    padding: 40px;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e0e0e0;
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px;
+}
+{% endblock %}
+
+{% block content %}
+<div id="loadingState" class="card loading-state">
+    <div class="spinner"></div>
+    <p>正在加载诊断结果...</p>
+</div>
+
+<div id="resultContainer" style="display: none;">
+    <div class="card">
+        <h2 class="card-title">
+            <span>📊</span>
+            诊断结果
+        </h2>
+        
+        <div class="result-summary" id="resultSummary">
+            <div class="summary-item">
+                <h3 id="totalCount">-</h3>
+                <p>总题数</p>
+            </div>
+            <div class="summary-item">
+                <h3 id="errorCount" style="color: #e74c3c;">-</h3>
+                <p>错题数</p>
+            </div>
+            <div class="summary-item">
+                <h3 id="accuracyRate">-</h3>
+                <p>正确率</p>
+            </div>
+        </div>
+        
+        <div id="questionsList"></div>
+    </div>
+    
+    <div class="card" id="diagnosisCard" style="display: none;">
+        <h2 class="card-title">
+            <span>🔍</span>
+            分层诊断
+        </h2>
+        <p style="color: #666; margin-bottom: 16px;">
+            请选择最符合孩子情况的选项，帮助我们给出更精准的讲解：
+        </p>
+        <div class="diagnosis-options" id="diagnosisOptions"></div>
+        <button class="btn btn-primary" id="confirmDiagnosis" style="width: 100%; margin-top: 20px;" disabled>
+            确认选择
+        </button>
+    </div>
+    
+    <div class="card" id="explanationCard" style="display: none;">
+        <h2 class="card-title">
+            <span>💡</span>
+            讲解与建议
+        </h2>
+        <div id="explanationContent"></div>
+        <button class="btn btn-success" id="nextBtn" style="width: 100%; margin-top: 20px;">
+            查看学习统计 →
+        </button>
+    </div>
+</div>
+
+<div id="errorState" class="card empty-state" style="display: none;">
+    <div class="empty-state-icon">😕</div>
+    <h3>加载失败</h3>
+    <p style="color: #666; margin-top: 8px;">无法加载诊断结果，请稍后重试</p>
+    <button class="btn btn-primary" onclick="location.reload()" style="margin-top: 20px;">
+        重新加载
+    </button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+const homeworkId = '{{ homework_id }}';
+let selectedQuestionId = null;
+let selectedLevel = null;
+
+// 加载作业详情
+async function loadHomework() {
+    try {
+        const data = await apiRequest(`${API_BASE}/homework/${homeworkId}`);
+        renderResult(data);
+    } catch (error) {
+        document.getElementById('loadingState').style.display = 'none';
+        document.getElementById('errorState').style.display = 'block';
+    }
+}
+
+// 渲染结果
+function renderResult(data) {
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('resultContainer').style.display = 'block';
+    
+    // 更新统计
+    const summary = data.summary || {};
+    document.getElementById('totalCount').textContent = summary.total_count || 0;
+    document.getElementById('errorCount').textContent = summary.error_count || 0;
+    document.getElementById('accuracyRate').textContent = 
+        ((summary.accuracy_rate || 0) * 100).toFixed(0) + '%';
+    
+    // 渲染题目列表
+    const questionsList = document.getElementById('questionsList');
+    const questions = data.questions || [];
+    
+    if (questions.length === 0) {
+        questionsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📝</div>
+                <h3>暂无题目数据</h3>
+                <p style="color: #666;">诊断仍在进行中，请稍后刷新查看</p>
+            </div>
+        `;
+        
+        // 自动刷新
+        setTimeout(loadHomework, 5000);
+        return;
+    }
+    
+    questionsList.innerHTML = questions.map((q, index) => `
+        <div class="question-item ${q.is_correct === false ? 'error' : 'correct'}">
+            <div class="question-header">
+                <span class="question-number">第 ${index + 1} 题</span>
+                <span class="question-status ${q.is_correct === false ? 'error' : 'correct'}">
+                    ${q.is_correct === false ? '❌ 错误' : '✓ 正确'}
+                </span>
+            </div>
+            <div class="question-content">${q.content || '未识别题目内容'}</div>
+            <div class="answer-comparison">
+                <div class="answer-box student">
+                    <div class="answer-label">学生答案</div>
+                    <div class="answer-value">${q.student_answer || '-'}</div>
+                </div>
+                <div class="answer-box correct">
+                    <div class="answer-label">正确答案</div>
+                    <div class="answer-value">${q.correct_answer || '-'}</div>
+                </div>
+            </div>
+            ${q.is_correct === false ? `
+                <button class="btn btn-secondary" style="width: 100%; margin-top: 12px;" 
+                    onclick="startDiagnosis('${q.question_id}')">
+                    🔍 开始分层诊断
+                </button>
+            ` : ''}
+        </div>
+    `).join('');
+    
+    // 如果有错题，显示第一个的分层诊断
+    const firstError = questions.find(q => q.is_correct === false);
+    if (firstError) {
+        startDiagnosis(firstError.question_id);
+    }
+}
+
+// 开始分层诊断
+async function startDiagnosis(questionId) {
+    selectedQuestionId = questionId;
+    
+    try {
+        const data = await apiRequest(`${API_BASE}/diagnosis/${questionId}/options`);
+        renderDiagnosisOptions(data);
+    } catch (error) {
+        showAlert('加载诊断选项失败', 'error');
+    }
+}
+
+// 渲染诊断选项
+function renderDiagnosisOptions(data) {
+    const card = document.getElementById('diagnosisCard');
+    const container = document.getElementById('diagnosisOptions');
+    
+    card.style.display = 'block';
+    
+    // 按层级分组
+    const levels = {
+        1: { title: '粗心大意', options: [] },
+        2: { title: '概念模糊', options: [] },
+        3: { title: '完全不会', options: [] },
+    };
+    
+    data.options.forEach(opt => {
+        if (levels[opt.level]) {
+            levels[opt.level].options.push(opt);
+        }
+    });
+    
+    container.innerHTML = Object.entries(levels).map(([level, group]) => `
+        <div style="margin-bottom: 16px;">
+            <div style="font-weight: 600; margin-bottom: 8px; color: #667eea;">
+                Step ${level}: ${group.title}
+            </div>
+            ${group.options.map(opt => `
+                <div class="diagnosis-option" data-level="${opt.level}" data-id="${opt.option_id}"
+                    onclick="selectOption('${opt.option_id}', ${opt.level})">
+                    <div class="option-label">${opt.label}</div>
+                    <div class="option-desc">${opt.description}</div>
+                </div>
+            `).join('')}
+        </div>
+    `).join('');
+    
+    // 滚动到诊断卡片
+    card.scrollIntoView({ behavior: 'smooth' });
+}
+
+// 选择选项
+function selectOption(optionId, level) {
+    selectedLevel = level;
+    
+    // 更新UI
+    document.querySelectorAll('.diagnosis-option').forEach(opt => {
+        opt.classList.remove('selected');
+    });
+    document.querySelector(`[data-id="${optionId}"]`).classList.add('selected');
+    
+    // 启用确认按钮
+    document.getElementById('confirmDiagnosis').disabled = false;
+}
+
+// 确认诊断选择
+document.getElementById('confirmDiagnosis')?.addEventListener('click', async () => {
+    if (!selectedQuestionId || !selectedLevel) return;
+    
+    const btn = document.getElementById('confirmDiagnosis');
+    showLoading(btn, '提交中...');
+    
+    try {
+        const data = await apiRequest(`${API_BASE}/diagnosis/${selectedQuestionId}`, {
+            method: 'POST',
+            body: JSON.stringify({ level: selectedLevel }),
+        });
+        
+        // 显示诊断结果和讲解
+        showExplanation(data);
+    } catch (error) {
+        hideLoading(btn);
+        showAlert('提交失败，请重试', 'error');
+    }
+});
+
+// 显示讲解
+function showExplanation(data) {
+    document.getElementById('explanationCard').style.display = 'block';
+    
+    const container = document.getElementById('explanationContent');
+    container.innerHTML = `
+        <div class="explanation-box">
+            <div class="explanation-title">📚 诊断结果</div>
+            <p style="margin-bottom: 12px;">
+                <strong>问题类型：</strong>${data.result.knowledge_gap}
+            </p>
+            <p>${data.result.recommendation}</p>
+        </div>
+        
+        <div class="explanation-box">
+            <div class="explanation-title">📝 解题步骤</div>
+            <ol class="explanation-steps">
+                <li>仔细读题，理解题意</li>
+                <li>找出题目中的关键数字</li>
+                <li>确定正确的运算方法</li>
+                <li>列式计算并验算</li>
+            </ol>
+        </div>
+        
+        <div class="tips-box">
+            <div class="tips-title">💡 学习建议</div>
+            <ul class="tips-list">
+                <li>每天练习5道类似题目</li>
+                <li>建立错题本，定期复习</li>
+                <li>做完后务必验算</li>
+            </ul>
+        </div>
+    `;
+    
+    // 滚动到讲解卡片
+    document.getElementById('explanationCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+// 下一步按钮
+document.getElementById('nextBtn')?.addEventListener('click', () => {
+    window.location.href = '/web/statistics';
+});
+
+// 加载数据
+loadHomework();
+{% endblock %}

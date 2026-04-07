@@ -417,6 +417,18 @@ class Settings(BaseSettings):
         default=1,
         description="API工作进程数",
     )
+    api_prefix: str = Field(
+        default="/api/v1",
+        description="API路径前缀",
+    )
+    cors_origins: List[str] = Field(
+        default=["*"],
+        description="CORS允许的来源",
+    )
+    upload_dir: str = Field(
+        default="./uploads",
+        description="上传文件存储目录",
+    )
 
     @property
     def is_development(self) -> bool:
@@ -432,6 +444,26 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """是否为生产环境."""
         return self.env == Environment.PRODUCTION
+    
+    @property
+    def VERSION(self) -> str:
+        """应用版本（兼容属性）."""
+        return self.app_version
+    
+    @property
+    def API_PREFIX(self) -> str:
+        """API前缀（兼容属性）."""
+        return self.api_prefix
+    
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """CORS来源（兼容属性）."""
+        return self.cors_origins
+    
+    @property
+    def UPLOAD_DIR(self) -> str:
+        """上传目录（兼容属性）."""
+        return self.upload_dir
 
     def to_dict(self) -> Dict[str, Any]:
         """将配置转换为字典.

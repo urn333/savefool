@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+
+{% block title %}上传作业 - AI助教系统{% endblock %}
+
+{% block extra_css %}
+.preview-image {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 10px;
+    margin-top: 16px;
+}
+
+.char-count {
+    text-align: right;
+    font-size: 0.85rem;
+    color: #999;
+    margin-top: 4px;
+}
+
+.char-count.warning {
+    color: #f39c12;
+}
+
+.char-count.error {
+    color: #e74c3c;
+}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <h2 class="card-title">
+        <span>📤</span>
+        上传作业
+    </h2>
+    
+    <form id="uploadForm">
+        <div class="form-group">
+            <label class="form-label">学生ID</label>
+            <input type="text" class="form-input" id="studentId" placeholder="请输入学生ID" required>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">学科</label>
+            <select class="form-select" id="subject" required>
+                <option value="math">数学</option>
+                <option value="chinese">语文</option>
+                <option value="english">英语</option>
+                <option value="physics">物理</option>
+                <option value="chemistry">化学</option>
+            </select>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">作业照片</label>
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📷</div>
+                <p>点击选择图片或拖拽到此处</p>
+                <p style="font-size: 0.9rem; color: #999; margin-top: 8px;">
+                    支持 JPG、PNG、WebP 格式，最大 10MB
+                </p>
+                <input type="file" id="fileInput" accept="image/*" style="display: none;">
+            </div>
+            <img id="preview" class="preview-image" style="display: none;">
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">家长描述（可选）</label>
+            <textarea 
+                class="form-textarea" 
+                id="description" 
+                placeholder="描述一下孩子做题时遇到的问题..."
+                maxlength="140"
+            ></textarea>
+            <div class="char-count" id="charCount">0/140</div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" id="submitBtn" style="width: 100%;">
+            🚀 开始诊断
+        </button>
+    </form>
+</div>
+
+<div class="card" style="display: none;" id="progressCard">
+    <h2 class="card-title">
+        <span>⏳</span>
+        诊断中
+    </h2>
+    <div class="progress-container">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
+        </div>
+        <div class="progress-text" id="progressText">正在上传...</div>
+    </div>
+    <p style="text-align: center; color: #666; margin-top: 16px;">
+        预计还需要 <span id="timeRemaining">30</span> 秒
+    </p>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+// 文件上传处理
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const preview = document.getElementById('preview');
+let selectedFile = null;
+
+uploadArea.addEventListener('click', () => fileInput.click());
+
+uploadArea.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('dragover');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+    uploadArea.classList.remove('dragover');
+});
+
+uploadArea.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('dragover');
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
+    }
+});
+
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+function handleFile(file) {
+    // 验证文件类型
+    if (!file.type.startsWith('image/')) {
+        showAlert('请选择图片文件', 'error');
+        return;
+    }
+    
+    // 验证文件大小
+    if (file.size > 10 * 1024 * 1024) {
+        showAlert('图片大小不能超过10MB', 'error');
+        return;
+    }
+    
+    selectedFile = file;
+    
+    // 预览图片
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        preview.src = e.target.result;
+        preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+// 字符计数
+document.getElementById('description').addEventListener('input', function() {
+    const count = this.value.length;
+    const counter = document.getElementById('charCount');
+    counter.textContent = `${count}/140`;
+    
+    counter.classList.remove('warning', 'error');
+    if (count >= 130) {
+        counter.classList.add('error');
+    } else if (count >= 100) {
+        counter.classList.add('warning');
+    }
+});
+
+// 表单提交
+document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!selectedFile) {
+        showAlert('请选择作业照片', 'error');
+        return;
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    const progressCard = document.getElementById('progressCard');
+    
+    showLoading(submitBtn, '上传中...');
+    
+    // 构建表单数据
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('student_id', document.getElementById('studentId').value);
+    formData.append('subject', document.getElementById('subject').value);
+    
+    const description = document.getElementById('description').value;
+    if (description) {
+        formData.append('description', description);
+    }
+    
+    try {
+        // 显示进度卡片
+        progressCard.style.display = 'block';
+        submitBtn.style.display = 'none';
+        
+        // 模拟进度
+        let progress = 0;
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const timeRemaining = document.getElementById('timeRemaining');
+        
+        const progressInterval = setInterval(() => {
+            progress += 2;
+            progressFill.style.width = `${progress}%`;
+            
+            if (progress < 20) {
+                progressText.textContent = '正在上传图片...';
+            } else if (progress < 40) {
+                progressText.textContent = '正在识别题目...';
+            } else if (progress < 60) {
+                progressText.textContent = '正在分析错误...';
+            } else if (progress < 80) {
+                progressText.textContent = '正在生成讲解...';
+            } else {
+                progressText.textContent = '正在组装结果...';
+            }
+            
+            timeRemaining.textContent = Math.max(1, Math.ceil((100 - progress) / 3));
+            
+            if (progress >= 100) {
+                clearInterval(progressInterval);
+            }
+        }, 500);
+        
+        // 发送请求
+        const response = await fetch(`${API_BASE}/homework`, {
+            method: 'POST',
+            body: formData,
+        });
+        
+        const result = await response.json();
+        
+        if (result.code !== 0) {
+            throw new Error(result.message);
+        }
+        
+        clearInterval(progressInterval);
+        progressFill.style.width = '100%';
+        progressText.textContent = '诊断完成！';
+        
+        // 跳转到结果页面
+        setTimeout(() => {
+            window.location.href = `/web/result/${result.data.homework_id}`;
+        }, 500);
+        
+    } catch (error) {
+        hideLoading(submitBtn);
+        submitBtn.style.display = 'block';
+        progressCard.style.display = 'none';
+        showAlert(error.message || '上传失败，请重试', 'error');
+    }
+});
+{% endblock %}
