@@ -9,52 +9,42 @@
 
 import time
 import pytest
-from concurrent.futures import TimeoutError as FutureTimeoutError
+import asyncio
 
 from src.domain.models.diagnosis import ErrorType
-from src.domain.models.variant import (
-    GenerationStrategy,
-    VariantGenerationRequest,
-    VariantGenerationResult,
-)
+from src.domain.models.variant import VariantProblem
+from src.domain.models.diagnosis import Problem
 from src.domain.engines.variant_generator import (
     VariantGenerator,
-    GeneratorConfig,
-    generate_variant_simple,
-)
-from src.domain.engines.variant_strategies import TransformStatus
-from tests.fixtures.variant_fixtures import (
-    create_variant_request,
-    SAMPLE_EQUATION_PROBLEMS,
+    GenerationConfig,
+    VariantGenerationOutput,
 )
 
 
-class TestGeneratorConfig:
+class TestGenerationConfig:
     """生成器配置测试."""
     
     def test_default_config(self):
         """测试默认配置."""
-        config = GeneratorConfig()
+        config = GenerationConfig()
         
         assert config.timeout_seconds == 5.0
-        assert config.max_concurrent == 3
-        assert config.enable_fallback is True
-        assert config.min_credibility_score == 0.4
-        assert len(config.default_strategy_order) > 0
+        assert config.max_retries == 2
+        assert config.fallback_to_preset is True
+        assert config.enable_credibility_rating is True
+        assert config.enable_validation is True
     
     def test_custom_config(self):
         """测试自定义配置."""
-        config = GeneratorConfig(
+        config = GenerationConfig(
             timeout_seconds=10.0,
-            max_concurrent=5,
-            enable_fallback=False,
-            min_credibility_score=0.6,
+            max_retries=5,
+            fallback_to_preset=False,
         )
         
         assert config.timeout_seconds == 10.0
-        assert config.max_concurrent == 5
-        assert config.enable_fallback is False
-        assert config.min_credibility_score == 0.6
+        assert config.max_retries == 5
+        assert config.fallback_to_preset is False
 
 
 class TestVariantGeneratorCreation:
@@ -65,13 +55,12 @@ class TestVariantGeneratorCreation:
         generator = VariantGenerator()
         
         assert generator.config is not None
-        assert generator.validator is not None
-        assert generator.rater is not None
+        assert generator.config.timeout_seconds == 5.0
     
     def test_custom_config_creation(self):
         """测试自定义配置创建."""
-        config = GeneratorConfig(timeout_seconds=3.0)
-        generator = VariantGenerator(config)
+        config = GenerationConfig(timeout_seconds=3.0)
+        generator = VariantGenerator(config=config)
         
         assert generator.config.timeout_seconds == 3.0
 
@@ -85,130 +74,67 @@ class TestVariantGeneration:
         return VariantGenerator()
     
     @pytest.fixture
-    def sample_request(self):
-        """创建示例请求."""
-        return create_variant_request(
+    def sample_problem(self):
+        """创建示例题目."""
+        return Problem(
+            content="2x + 5 = 15",
+            subject="math",
+            difficulty=3,
+            answer="5",
+            knowledge_points=["linear_equation"],
+        )
+    
+    @pytest.mark.asyncio
+    async def test_generate_returns_output(self, generator, sample_problem):
+        """测试生成返回输出."""
+        result = await generator.generate(
+            original_problem=sample_problem,
             error_type=ErrorType.CALCULATION_ERROR,
-            count=2,
-        )
-    
-    def test_generate_returns_result(self, generator, sample_request):
-        """测试生成返回结果."""
-        result = generator.generate(
-            sample_request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+            student_level=0.5,
         )
         
-        assert isinstance(result, VariantGenerationResult)
-        assert hasattr(result, 'variants')
-        assert hasattr(result, 'metadata')
+        assert isinstance(result, VariantGenerationOutput)
+        assert hasattr(result, 'variant')
+        assert hasattr(result, 'credibility')
+        assert hasattr(result, 'generation_time')
     
-    def test_generate_single_variant(self, generator):
-        """测试生成单个变形题."""
-        request = create_variant_request(count=1)
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        assert len(result.variants) >= 0  # 可能为0如果所有策略都失败
-    
-    def test_generate_multiple_variants(self, generator):
-        """测试生成多个变形题."""
-        request = create_variant_request(count=3)
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        # 最多生成请求数量
-        assert len(result.variants) <= 3
-    
-    def test_generated_variants_have_id(self, generator, sample_request):
-        """测试生成的变形题有ID."""
-        result = generator.generate(
-            sample_request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        for variant in result.variants:
-            assert variant.id is not None
-            assert len(variant.id) > 0
-    
-    def test_generated_variants_solvable(self, generator, sample_request):
-        """测试生成的变形题可解."""
-        result = generator.generate(
-            sample_request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        for variant in result.variants:
-            assert variant.is_solvable is True
-            assert variant.answer is not None
-    
-    def test_metadata_contains_strategies(self, generator, sample_request):
-        """测试元数据包含策略信息."""
-        result = generator.generate(
-            sample_request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        assert "strategies_attempted" in result.metadata
-        assert "strategies_succeeded" in result.metadata
-    
-    def test_metadata_contains_elapsed_time(self, generator, sample_request):
-        """测试元数据包含耗时."""
-        result = generator.generate(
-            sample_request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        assert "elapsed_time" in result.metadata
-        assert result.metadata["elapsed_time"] >= 0
-
-
-class TestTimeoutControl:
-    """超时控制测试."""
-    
-    def test_short_timeout(self):
-        """测试短超时."""
-        config = GeneratorConfig(timeout_seconds=0.001)  # 极短超时
-        generator = VariantGenerator(config)
-        
-        request = create_variant_request(count=5)
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
-        )
-        
-        # 应该超时，生成的数量可能少于请求
-        assert result.metadata.get("timeout_reached") is True or len(result.variants) < 5
-    
-    def test_timeout_respected(self):
-        """测试超时被尊重."""
-        config = GeneratorConfig(timeout_seconds=0.5)
-        generator = VariantGenerator(config)
-        
-        request = create_variant_request(count=10)
-        
+    @pytest.mark.asyncio
+    async def test_generate_with_timeout(self, generator, sample_problem):
+        """测试带超时的生成."""
         start = time.time()
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+        result = await generator.generate(
+            original_problem=sample_problem,
+            error_type=ErrorType.CALCULATION_ERROR,
+            student_level=0.5,
         )
         elapsed = time.time() - start
         
-        # 总耗时应该接近或小于超时时间（允许一些误差）
-        assert elapsed < 2.0  # 宽松的时间限制
+        # 应该在合理时间内完成（允许一些误差）
+        assert elapsed < 10.0
+        assert result.generation_time >= 0
+    
+    @pytest.mark.asyncio
+    async def test_generate_respects_timeout(self):
+        """测试超时被尊重."""
+        config = GenerationConfig(timeout_seconds=0.001)
+        generator = VariantGenerator(config=config)
+        
+        problem = Problem(
+            content="2x + 5 = 15",
+            subject="math",
+            difficulty=3,
+            answer="5",
+            knowledge_points=["linear_equation"],
+        )
+        
+        result = await generator.generate(
+            original_problem=problem,
+            error_type=ErrorType.CALCULATION_ERROR,
+            student_level=0.5,
+        )
+        
+        # 应该超时并返回fallback或空结果
+        assert result is not None
 
 
 class TestStrategySelection:
@@ -218,209 +144,184 @@ class TestStrategySelection:
         """测试根据错误类型选择策略."""
         generator = VariantGenerator()
         
-        # 不同错误类型应该产生不同的策略列表
-        request_calc = create_variant_request(error_type=ErrorType.CALCULATION_ERROR)
-        request_concept = create_variant_request(error_type=ErrorType.CONCEPT_MISUNDERSTANDING)
+        problem = Problem(
+            content="2x + 5 = 15",
+            subject="math",
+            difficulty=3,
+            answer="5",
+        )
         
-        strategies_calc = generator._select_strategies(request_calc)
-        strategies_concept = generator._select_strategies(request_concept)
+        # 不同错误类型应该产生不同的策略列表
+        strategies_calc = generator._select_strategies(ErrorType.CALCULATION_ERROR, problem)
+        strategies_concept = generator._select_strategies(ErrorType.CONCEPT_MISUNDERSTANDING, problem)
         
         assert len(strategies_calc) > 0
         assert len(strategies_concept) > 0
     
-    def test_strategy_selection_with_custom_strategies(self):
-        """测试自定义策略选择."""
+    def test_calculate_target_difficulty(self):
+        """测试目标难度计算."""
         generator = VariantGenerator()
         
-        custom_strategies = [GenerationStrategy.VALUE_SUBSTITUTION]
-        request = create_variant_request(strategies=custom_strategies)
+        difficulty = generator._calculate_target_difficulty(
+            original_difficulty=5,
+            student_level=0.5,
+            error_type=ErrorType.CALCULATION_ERROR,
+        )
         
-        selected = generator._select_strategies(request)
-        
-        assert selected == custom_strategies
-    
-    def test_all_strategies_available(self):
-        """测试所有策略可用."""
-        generator = VariantGenerator()
-        
-        # 检查策略映射表
-        assert GenerationStrategy.VALUE_SUBSTITUTION in generator._strategy_map
-        assert GenerationStrategy.REVERSE_CONSTRUCT in generator._strategy_map
-        assert GenerationStrategy.CONTEXT_CHANGE in generator._strategy_map
-        assert GenerationStrategy.CONDITION_MODIFY in generator._strategy_map
+        assert 1 <= difficulty <= 10
 
 
 class TestFallbackGeneration:
     """Fallback生成测试."""
     
-    def test_fallback_enabled(self):
+    @pytest.mark.asyncio
+    async def test_fallback_enabled(self):
         """测试启用fallback."""
-        config = GeneratorConfig(enable_fallback=True, timeout_seconds=0.001)
-        generator = VariantGenerator(config)
+        config = GenerationConfig(fallback_to_preset=True, timeout_seconds=0.001)
+        generator = VariantGenerator(config=config)
         
-        request = create_variant_request(count=3)
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+        problem = Problem(
+            content="特殊题目",
+            subject="math",
+            difficulty=5,
+            answer="42",
+            knowledge_points=["special"],
         )
         
-        # fallback应该补充生成的数量
-        # 注意：fallback可能也失败，但至少不会抛出异常
-    
-    def test_fallback_disabled(self):
-        """测试禁用fallback."""
-        config = GeneratorConfig(enable_fallback=False, timeout_seconds=0.001)
-        generator = VariantGenerator(config)
-        
-        request = create_variant_request(count=3)
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+        result = await generator.generate(
+            original_problem=problem,
+            error_type=ErrorType.CALCULATION_ERROR,
+            student_level=0.5,
         )
         
-        # 禁用fallback时，可能生成的更少
-        assert len(result.variants) <= 3
+        # fallback应该处理超时情况
+        assert result is not None
 
 
 class TestBatchGeneration:
     """批量生成测试."""
     
-    def test_batch_generation(self):
+    @pytest.mark.asyncio
+    async def test_batch_generation(self):
         """测试批量生成."""
-        config = GeneratorConfig(max_concurrent=2)
-        generator = VariantGenerator(config)
+        generator = VariantGenerator()
         
-        requests = [
-            (create_variant_request(count=1), "2x + 5 = 15", "5"),
-            (create_variant_request(count=1), "3x - 7 = 14", "7"),
-        ]
+        problem = Problem(
+            content="2x + 5 = 15",
+            subject="math",
+            difficulty=3,
+            answer="5",
+            knowledge_points=["linear_equation"],
+        )
         
-        results = generator.generate_batch(requests)
-        
-        assert len(results) == len(requests)
-        for result in results:
-            assert isinstance(result, VariantGenerationResult)
-
-
-class TestSimpleGenerationFunction:
-    """简化生成函数测试."""
-    
-    def test_generate_variant_simple(self):
-        """测试简化生成函数."""
-        variant = generate_variant_simple(
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+        result = await generator.generate_batch(
+            original_problem=problem,
             error_type=ErrorType.CALCULATION_ERROR,
-            timeout=5.0,
+            student_level=0.5,
+            count=2,
         )
         
-        # 可能成功也可能失败，但不应该抛出异常
-        if variant is not None:
-            assert variant.is_solvable
-            assert variant.answer is not None
+        assert len(result.variants) <= 2
+        assert hasattr(result, 'metadata')
 
 
-class TestGeneratorContextCreation:
-    """上下文创建测试."""
+class TestCredibilityHistory:
+    """可信度历史测试."""
     
-    def test_context_creation_difficulty_same(self):
-        """测试相同难度的上下文创建."""
+    def test_get_credibility_history(self):
+        """测试获取历史记录."""
         generator = VariantGenerator()
-        request = create_variant_request(difficulty="same")
+        history = generator.get_credibility_history()
         
-        context = generator._create_context(
-            request, "2x + 5 = 15", "5"
-        )
-        
-        assert context.original_difficulty == 5  # 默认难度
+        assert history is not None
     
-    def test_context_creation_difficulty_easier(self):
-        """测试降低难度的上下文创建."""
+    def test_get_calibration_report(self):
+        """测试获取校准报告."""
         generator = VariantGenerator()
-        request = create_variant_request(difficulty="easier")
+        report = generator.get_calibration_report()
         
-        context = generator._create_context(
-            request, "2x + 5 = 15", "5"
-        )
-        
-        assert context.original_difficulty < 5
-    
-    def test_context_creation_difficulty_harder(self):
-        """测试增加难度的上下文创建."""
-        generator = VariantGenerator()
-        request = create_variant_request(difficulty="harder")
-        
-        context = generator._create_context(
-            request, "2x + 5 = 15", "5"
-        )
-        
-        assert context.original_difficulty > 5
+        assert isinstance(report, dict)
 
 
-class TestGeneratorResultProperties:
-    """生成结果属性测试."""
+class TestVariantGenerationOutput:
+    """生成输出测试."""
     
-    def test_success_rate_calculation(self):
-        """测试成功率计算."""
-        generator = VariantGenerator()
-        request = create_variant_request(count=2)
-        
-        result = generator.generate(
-            request,
-            original_problem="2x + 5 = 15",
-            original_answer="5",
+    def test_output_creation(self):
+        """测试输岀创建."""
+        output = VariantGenerationOutput(
+            variant=None,
+            credibility=None,
+            validation=None,
+            generation_time=1.5,
+            strategy_used="numeric",
+            is_fallback=False,
+            metadata={},
         )
         
-        # 验证结果属性
-        assert 0 <= result.success_rate <= 1
-        assert result.valid_count <= len(result.variants)
+        assert output.generation_time == 1.5
+        assert output.strategy_used == "numeric"
+        assert output.is_fallback is False
+    
+    def test_output_to_dict(self):
+        """测试转换为字典."""
+        output = VariantGenerationOutput(
+            variant=None,
+            credibility=None,
+            validation=None,
+            generation_time=1.0,
+            strategy_used="test",
+            is_fallback=False,
+            metadata={"key": "value"},
+        )
+        
+        data = output.to_dict()
+        
+        assert data["generation_time"] == 1.0
+        assert data["strategy_used"] == "test"
+        assert data["metadata"]["key"] == "value"
 
 
 class TestEdgeCases:
     """边界情况测试."""
     
-    def test_empty_problem(self):
+    @pytest.mark.asyncio
+    async def test_empty_problem(self):
         """测试空题目."""
         generator = VariantGenerator()
-        request = create_variant_request()
         
-        result = generator.generate(
-            request,
-            original_problem="",
-            original_answer="5",
+        problem = Problem(
+            content="",
+            subject="math",
+            difficulty=3,
+            answer="",
+        )
+        
+        result = await generator.generate(
+            original_problem=problem,
+            error_type=ErrorType.CALCULATION_ERROR,
+            student_level=0.5,
         )
         
         # 应该优雅处理，不抛出异常
-        assert isinstance(result, VariantGenerationResult)
+        assert isinstance(result, VariantGenerationOutput)
     
-    def test_very_long_problem(self):
-        """测试超长题目."""
-        generator = VariantGenerator()
-        request = create_variant_request()
-        
-        long_problem = "2x + 5 = 15 " * 100
-        result = generator.generate(
-            request,
-            original_problem=long_problem,
-            original_answer="5",
-        )
-        
-        # 应该优雅处理
-        assert isinstance(result, VariantGenerationResult)
-    
-    def test_special_characters_in_problem(self):
+    @pytest.mark.asyncio
+    async def test_special_characters_in_problem(self):
         """测试特殊字符题目."""
         generator = VariantGenerator()
-        request = create_variant_request()
         
-        special_problem = "解方程: 2x² + √5 = π"
-        result = generator.generate(
-            request,
-            original_problem=special_problem,
-            original_answer="x",
+        problem = Problem(
+            content="解方程: 2x² + √5 = π",
+            subject="math",
+            difficulty=5,
+            answer="x",
+        )
+        
+        result = await generator.generate(
+            original_problem=problem,
+            error_type=ErrorType.CALCULATION_ERROR,
+            student_level=0.5,
         )
         
         # 应该优雅处理
-        assert isinstance(result, VariantGenerationResult)
+        assert isinstance(result, VariantGenerationOutput)

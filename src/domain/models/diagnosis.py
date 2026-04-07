@@ -23,6 +23,7 @@ class ErrorType(str, Enum):
     LOGICAL_FLAW = "logic"
     CARELESS_MISTAKE = "careless"
     KNOWLEDGE_GAP = "knowledge"
+    READING_ERROR = "reading"
 
 
 class DiagnosisStatus(str, Enum):
