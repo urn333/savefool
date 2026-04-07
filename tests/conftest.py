@@ -456,12 +456,13 @@ def initialized_db(db_connection: sqlite3.Connection) -> sqlite3.Connection:
     
     yield db_connection
     
-    # 清理所有数据
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    # 清理所有数据（跳过虚拟表）
+    cursor.execute("SELECT name, type FROM sqlite_master WHERE type='table'")
     tables = cursor.fetchall()
     for table in tables:
-        if not table[0].startswith("sqlite_"):
-            cursor.execute(f"DELETE FROM {table[0]}")
+        name = table[0]
+        if not name.startswith("sqlite_") and not name.endswith("_fts"):
+            cursor.execute(f"DELETE FROM {name}")
     db_connection.commit()
 
 
