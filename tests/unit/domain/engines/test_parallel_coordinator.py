@@ -483,9 +483,10 @@ class TestPartialFailure:
         
         # Then: 验证全部失败
         assert all(r.success is False for r in results.values())
-        assert results["model_a"].error == "Error A"
-        assert results["model_b"].error == "Error B"
-        assert results["model_c"].error == "Error C"
+        # 错误消息包含原始错误和执行上下文
+        assert "Error A" in results["model_a"].error
+        assert "Error B" in results["model_b"].error
+        assert "Error C" in results["model_c"].error
     
     @pytest.mark.asyncio
     async def test_continue_on_error_disabled(

@@ -7,18 +7,44 @@ from src.domain.engines.model_schedulers import (
     ModelAScheduler,
     ModelBScheduler,
     ModelCScheduler,
+    SchedulerConfig,
+    ParsedProblem,
 )
-from src.domain.engines.parallel_coordinator import ParallelCoordinator
-from src.domain.engines.arbitration_engine import ArbitrationEngine
-from src.domain.engines.result_fusion import ResultFusion
-from src.domain.engines.ocr_engine import OCREngine
+from src.domain.engines.parallel_coordinator import (
+    ParallelCoordinator,
+    CoordinatorConfig,
+    ModelTaskResult,
+)
+from src.domain.engines.arbitration_engine import (
+    ArbitrationEngine,
+    ArbitrationConfig,
+    ArbitrationStatus,
+)
+from src.domain.engines.result_fusion import (
+    ResultFusion,
+    FusionConfig,
+    FusionResult,
+    FieldSource,
+)
 
 __all__ = [
+    # 模型调度器
     "ModelAScheduler",
     "ModelBScheduler",
     "ModelCScheduler",
+    "SchedulerConfig",
+    "ParsedProblem",
+    # 并行协调器
     "ParallelCoordinator",
+    "CoordinatorConfig",
+    "ModelTaskResult",
+    # 仲裁引擎
     "ArbitrationEngine",
+    "ArbitrationConfig",
+    "ArbitrationStatus",
+    # 结果融合
     "ResultFusion",
-    "OCREngine",
+    "FusionConfig",
+    "FusionResult",
+    "FieldSource",
 ]

@@ -21,10 +21,18 @@ class FusionConfig:
         field_confidence_threshold: 字段置信度阈值
         enable_source_tracking: 是否启用来源追踪
         conflict_resolution_strategy: 冲突解决策略
+        field_merge_strategy: 字段合并策略 (union/intersection/weighted)
+        conflict_resolution: 冲突解决策略 (majority/confidence)
+        include_sources: 是否包含来源标记
+        min_field_agreement: 字段最小同意比例
     """
     field_confidence_threshold: float = 0.6
     enable_source_tracking: bool = True
     conflict_resolution_strategy: str = "weighted_vote"  # weighted_vote, priority, merge
+    field_merge_strategy: str = "union"  # union, intersection, weighted
+    conflict_resolution: str = "majority"  # majority, confidence
+    include_sources: bool = True
+    min_field_agreement: float = 0.5
 
 
 @dataclass
@@ -65,6 +73,24 @@ class FusedDiagnosis:
     conflict_flags: List[str] = field(default_factory=list)
 
 
+@dataclass
+class FusionResult:
+    """融合结果 (向后兼容).
+    
+    Attributes:
+        problem_id: 题目ID
+        fused_fields: 融合后的字段
+        field_sources: 字段来源映射
+        conflicts: 检测到的冲突
+        fusion_confidence: 融合置信度
+    """
+    problem_id: str = ""
+    fused_fields: Dict[str, Any] = field(default_factory=dict)
+    field_sources: Dict[str, FieldSource] = field(default_factory=dict)
+    conflicts: List[Dict[str, Any]] = field(default_factory=list)
+    fusion_confidence: float = 0.0
+
+
 class ResultFusion:
     """结果融合算法.
     
@@ -95,6 +121,39 @@ class ResultFusion:
         self.config = config or FusionConfig()
         self.logger = get_logger(__name__)
     
+    def fuse(
+        self,
+        arbitration_result: ArbitrationResult,
+        model_results: List[ModelResult],
+        problem_id: str = "",
+    ) -> FusionResult:
+        """执行结果融合 (向后兼容).
+        
+        Args:
+            arbitration_result: 仲裁结果
+            model_results: 原始模型结果列表
+            problem_id: 题目ID
+            
+        Returns:
+            融合后的结果
+        """
+        fused = self.fuse_results(arbitration_result, model_results, problem_id)
+        
+        # 转换为FusionResult
+        return FusionResult(
+            problem_id=problem_id or arbitration_result.problem_id,
+            fused_fields={
+                "is_wrong": fused.is_wrong,
+                "error_type": fused.error_type,
+                "root_cause": fused.root_cause,
+                "concept_gaps": fused.concept_gaps,
+                "confidence": fused.confidence,
+            },
+            field_sources=fused.field_sources,
+            conflicts=[{"flag": f} for f in fused.conflict_flags],
+            fusion_confidence=fused.confidence,
+        )
+    
     def fuse_results(
         self,
         arbitration_result: ArbitrationResult,
@@ -113,7 +172,7 @@ class ResultFusion:
         """
         self.logger.info(
             "fusion_start",
-            problem_id=problem_id,
+            problem_id=problem_id or arbitration_result.problem_id,
             model_count=len(model_results),
         )
         
@@ -157,7 +216,7 @@ class ResultFusion:
         
         self.logger.info(
             "fusion_complete",
-            problem_id=problem_id,
+            problem_id=problem_id or arbitration_result.problem_id,
             concept_gaps_count=len(fused.concept_gaps),
             conflict_count=len(fused.conflict_flags),
         )
@@ -449,3 +508,76 @@ class ResultFusion:
                 "conflict_flags": fused_diagnosis.conflict_flags,
             },
         )
+
+
+    def fuse_concept_scores(
+        self,
+        model_results: List[ModelResult],
+    ) -> Dict[str, float]:
+        """专门融合概念分数.
+        
+        Args:
+            model_results: 模型结果列表
+            
+        Returns:
+            融合后的概念分数
+        """
+        all_scores: Dict[str, List[float]] = {}
+        
+        # 收集所有概念分数
+        for result in model_results:
+            for concept, score in result.concept_scores.items():
+                if concept not in all_scores:
+                    all_scores[concept] = []
+                all_scores[concept].append(score)
+        
+        # 融合分数（取平均）
+        fused_scores = {
+            concept: sum(scores) / len(scores)
+            for concept, scores in all_scores.items()
+        }
+        
+        return fused_scores
+
+    def fuse_knowledge_points(
+        self,
+        model_results: List[ModelResult],
+    ) -> List[Dict[str, Any]]:
+        """融合知识点.
+        
+        Args:
+            model_results: 模型结果列表
+            
+        Returns:
+            融合后的知识点列表
+        """
+        all_points: Dict[str, Dict[str, Any]] = {}
+        
+        for result in model_results:
+            if not result.diagnosis:
+                continue
+            
+            knowledge_points = result.diagnosis.get("knowledge_points", [])
+            if isinstance(knowledge_points, list):
+                for point in knowledge_points:
+                    if isinstance(point, str):
+                        point_id = point
+                        point_data = {"name": point, "sources": [result.model_id]}
+                    else:
+                        point_id = point.get("id", str(point))
+                        point_data = {**point, "sources": [result.model_id]}
+                    
+                    if point_id in all_points:
+                        all_points[point_id]["sources"].append(result.model_id)
+                        all_points[point_id]["frequency"] = all_points[point_id].get("frequency", 1) + 1
+                    else:
+                        all_points[point_id] = {**point_data, "frequency": 1}
+        
+        # 按频率排序
+        sorted_points = sorted(
+            all_points.values(),
+            key=lambda x: x.get("frequency", 1),
+            reverse=True
+        )
+        
+        return sorted_points[:10]  # 最多返回10个
