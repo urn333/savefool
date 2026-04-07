@@ -79,7 +79,7 @@ class TestStudentCRUD:
         
         # 更新
         cursor.execute("""
-            UPDATE student SET name = 'New Name', grade = '八年级', preferred_subjects = '["数学"]'
+            UPDATE student SET name = 'New Name', grade = '八年级', preferred_subjects = '[\"数学\"]'
             WHERE student_id = 'stu_update'
         """)
         initialized_db.commit()
@@ -90,7 +90,7 @@ class TestStudentCRUD:
         
         assert row[0] == 'New Name', "姓名未更新"
         assert row[1] == '八年级', "年级未更新"
-        assert row[2] == '["数学"]', "偏好未更新"
+        assert row[2] == '[\"数学\"]', "偏好未更新"
     
     def test_delete_student(self, initialized_db: sqlite3.Connection):
         """
@@ -136,7 +136,7 @@ class TestHomeworkCRUD:
         # 创建作业
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_001', 'stu_hw', '数学', 3, '["img1.jpg", "img2.jpg"]')
+            VALUES ('hw_001', 'stu_hw', '数学', 3, '[\"img1.jpg", "img2.jpg\"]')
         """)
         initialized_db.commit()
         
@@ -160,7 +160,7 @@ class TestHomeworkCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_arch', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls, status)
-            VALUES ('hw_arch', 'stu_arch', '数学', 1, '["test.jpg"]', 'active')
+            VALUES ('hw_arch', 'stu_arch', '数学', 1, '[\"test.jpg\"]', 'active')
         """)
         initialized_db.commit()
         
@@ -199,7 +199,7 @@ class TestQuestionCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_q', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_q', 'stu_q', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_q', 'stu_q', '数学', 1, '[\"test.jpg\"]')
         """)
         
         # 创建题目
@@ -229,7 +229,7 @@ class TestQuestionCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_batch', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_batch', 'stu_batch', '数学', 5, '["test.jpg"]')
+            VALUES ('hw_batch', 'stu_batch', '数学', 5, '[\"test.jpg\"]')
         """)
         
         # 批量插入
@@ -273,7 +273,7 @@ class TestAnswerCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_ans', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_ans', 'stu_ans', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_ans', 'stu_ans', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_ans', 'hw_ans')")
         
@@ -312,7 +312,7 @@ class TestDiagnosisCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_diag', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_diag', 'stu_diag', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_diag', 'stu_diag', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_diag', 'hw_diag')")
         cursor.execute("""
@@ -323,7 +323,7 @@ class TestDiagnosisCRUD:
         # 创建诊断
         cursor.execute("""
             INSERT INTO error_diagnosis (diagnosis_id, answer_id, question_id, student_id, error_type, knowledge_tags, confidence_score)
-            VALUES ('diag_001', 'ans_diag', 'q_diag', 'stu_diag', 'careless', '["加法运算"]', 0.85)
+            VALUES ('diag_001', 'ans_diag', 'q_diag', 'stu_diag', 'careless', '[\"加法运算\"]', 0.85)
         """)
         initialized_db.commit()
         
@@ -348,7 +348,7 @@ class TestDiagnosisCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_path', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_path', 'stu_path', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_path', 'stu_path', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_path', 'hw_path')")
         cursor.execute("""
@@ -397,7 +397,7 @@ class TestVariantCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_var', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_var', 'stu_var', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_var', 'stu_var', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id, ocr_text) VALUES ('q_var', 'hw_var', '2 + 3 = ?')")
         
@@ -429,7 +429,7 @@ class TestVariantCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_var_ans', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_var_ans', 'stu_var_ans', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_var_ans', 'stu_var_ans', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_var_ans', 'hw_var_ans')")
         cursor.execute("""
@@ -558,7 +558,7 @@ class TestCognitiveGapCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_gap', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO cognitive_gap (gap_id, student_id, gap_type, related_knowledge)
-            VALUES ('gap_001', 'stu_gap', 'concept_gap', '["k_001", "k_002"]')
+            VALUES ('gap_001', 'stu_gap', 'concept_gap', '[\"k_001", "k_002\"]')
         """)
         initialized_db.commit()
         
@@ -583,7 +583,7 @@ class TestCognitiveGapCRUD:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_ev', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_ev', 'stu_ev', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_ev', 'stu_ev', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_ev', 'hw_ev')")
         cursor.execute("""
@@ -673,7 +673,7 @@ class TestPagination:
         for i in range(30):
             cursor.execute("""
                 INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls, uploaded_at)
-                VALUES (?, 'stu_hw_page', '数学', 1, '["test.jpg"]', datetime('now', ?))
+                VALUES (?, 'stu_hw_page', '数学', 1, '[\"test.jpg\"]', datetime('now', ?))
             """, (f'hw_page_{i}', f'-{i} days'))
         
         initialized_db.commit()
@@ -772,7 +772,7 @@ class TestBatchOperations:
         for i in range(20):
             cursor.execute("""
                 INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls, uploaded_at)
-                VALUES (?, 'stu_batch_del', '数学', 1, '["test.jpg"]', datetime('now', ?))
+                VALUES (?, 'stu_batch_del', '数学', 1, '[\"test.jpg\"]', datetime('now', ?))
             """, (f'hw_batch_{i}', f'-{i} days'))
         
         initialized_db.commit()

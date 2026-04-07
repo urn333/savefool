@@ -476,7 +476,7 @@ def sample_student_data() -> dict:
         "student_id": generate_id("stu_"),
         "name": "测试学生",
         "grade": "七年级",
-        "preferred_subjects": '["数学", "英语"]'
+        "preferred_subjects": '[\"数学", "英语\"]'
     }
 
 
@@ -487,7 +487,7 @@ def sample_homework_data() -> dict:
         "homework_id": generate_id("hw_"),
         "subject": "数学",
         "page_count": 2,
-        "image_urls": '["url1.jpg", "url2.jpg"]',
+        "image_urls": '[\"url1.jpg", "url2.jpg\"]',
         "status": "active"
     }
 
@@ -522,7 +522,7 @@ def sample_diagnosis_data() -> dict:
     return {
         "diagnosis_id": generate_id("diag_"),
         "error_type": "careless",
-        "knowledge_tags": '["加法运算"]',
+        "knowledge_tags": '[\"加法运算\"]',
         "confidence_score": 0.85,
         "diagnosis_path": "Step1:A -> Step2:B"
     }
@@ -547,7 +547,7 @@ def sample_cognitive_gap_data() -> dict:
         "gap_id": generate_id("gap_"),
         "gap_type": "concept_gap",
         "status": "pending",
-        "related_knowledge": '["k_001", "k_002"]',
+        "related_knowledge": '[\"k_001", "k_002\"]',
         "occurrence_count": 1
     }
 

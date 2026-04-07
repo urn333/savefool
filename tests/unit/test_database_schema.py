@@ -303,7 +303,7 @@ class TestFieldTypes:
         with pytest.raises(sqlite3.IntegrityError):
             cursor.execute("""
                 INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-                VALUES ('hw_001', ?, '数学', 0, '["test.jpg"]')
+                VALUES ('hw_001', ?, '数学', 0, '[\"test.jpg\"]')
             """, (student_id,))
         
         initialized_db.rollback()
@@ -320,7 +320,7 @@ class TestFieldTypes:
         
         # 准备基础数据
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_001', 'Test', '七年级')")
-        cursor.execute("INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls) VALUES ('hw_001', 'stu_001', '数学', 1, '["test.jpg"]')")
+        cursor.execute("INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls) VALUES ('hw_001', 'stu_001', '数学', 1, ?)", ('[\"test.jpg\\"]',))
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_001', 'hw_001')")
         cursor.execute("INSERT INTO student_answer (answer_id, question_id, student_id, answer_content) VALUES ('ans_001', 'q_001', 'stu_001', 'test')")
         
@@ -374,7 +374,7 @@ class TestDefaultValues:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_001', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_001', 'stu_001', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_001', 'stu_001', '数学', 1, '[\"test.jpg\"]')
         """)
         
         cursor.execute("SELECT status FROM homework WHERE homework_id = 'hw_001'")

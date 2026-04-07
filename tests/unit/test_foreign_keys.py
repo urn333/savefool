@@ -44,7 +44,7 @@ class TestForeignKeyConstraints:
         with pytest.raises(sqlite3.IntegrityError):
             cursor.execute("""
                 INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-                VALUES ('hw_001', 'non_existent_student', '数学', 1, '["test.jpg"]')
+                VALUES ('hw_001', 'non_existent_student', '数学', 1, '[\"test.jpg\"]')
             """)
         
         initialized_db.rollback()
@@ -100,7 +100,7 @@ class TestForeignKeyConstraints:
         
         # 创建基础数据
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_001', 'Test', '七年级')")
-        cursor.execute("INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls) VALUES ('hw_001', 'stu_001', '数学', 1, '["test.jpg"]')")
+        cursor.execute("INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls) VALUES ('hw_001', 'stu_001', '数学', 1, ?)", ('[\"test.jpg\\"]',))
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_001', 'hw_001')")
         
         with pytest.raises(sqlite3.IntegrityError):
@@ -185,7 +185,7 @@ class TestCascadeDelete:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_cascade', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_cascade', 'stu_cascade', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_cascade', 'stu_cascade', '数学', 1, '[\"test.jpg\"]')
         """)
         
         # 验证作业存在
@@ -239,7 +239,7 @@ class TestCascadeDelete:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_hw', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_q', 'stu_hw', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_q', 'stu_hw', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id, question_number) VALUES ('q_001', 'hw_q', 1)")
         cursor.execute("INSERT INTO question (question_id, homework_id, question_number) VALUES ('q_002', 'hw_q', 2)")
@@ -266,7 +266,7 @@ class TestCascadeDelete:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_q', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_q2', 'stu_q', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_q2', 'stu_q', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_del', 'hw_q2')")
         cursor.execute("""
@@ -296,7 +296,7 @@ class TestCascadeDelete:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_ans', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_ans', 'stu_ans', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_ans', 'stu_ans', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_ans', 'hw_ans')")
         cursor.execute("""
@@ -336,7 +336,7 @@ class TestCascadeDelete:
         # 创建作业链以创建诊断
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_gap', 'stu_gap', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_gap', 'stu_gap', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_gap', 'hw_gap')")
         cursor.execute("""

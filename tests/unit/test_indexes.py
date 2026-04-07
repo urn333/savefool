@@ -214,7 +214,7 @@ class TestQueryPerformance:
             student_id = f'stu_perf_{i % 10}'
             cursor.execute("""
                 INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls, uploaded_at)
-                VALUES (?, ?, '数学', 1, '["test.jpg"]', datetime('now', ?))
+                VALUES (?, ?, '数学', 1, '[\"test.jpg\"]', datetime('now', ?))
             """, (f'hw_perf_{i}', student_id, f'-{i} days'))
         
         db.commit()
@@ -348,7 +348,7 @@ class TestUniqueConstraints:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_hwa', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_unique', 'stu_hwa', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_unique', 'stu_hwa', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("""
             INSERT INTO homework_analysis (analysis_id, homework_id)
@@ -435,7 +435,7 @@ class TestUniqueConstraints:
         cursor.execute("INSERT INTO student (student_id, name, grade) VALUES ('stu_tag', 'Test', '七年级')")
         cursor.execute("""
             INSERT INTO homework (homework_id, student_id, subject, page_count, image_urls)
-            VALUES ('hw_tag', 'stu_tag', '数学', 1, '["test.jpg"]')
+            VALUES ('hw_tag', 'stu_tag', '数学', 1, '[\"test.jpg\"]')
         """)
         cursor.execute("INSERT INTO question (question_id, homework_id) VALUES ('q_tag', 'hw_tag')")
         cursor.execute("""

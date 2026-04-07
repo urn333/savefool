@@ -9,13 +9,17 @@ from src.infrastructure.models.base import (
     ModelResponse,
     Role,
     StreamingCallback,
+    Usage,
 )
 from src.infrastructure.models.openai_client import OpenAIClient
 from src.infrastructure.models.exceptions import (
     ModelAuthenticationError,
     ModelClientError,
+    ModelContentFilterError,
     ModelRateLimitError,
+    ModelServerError,
     ModelTimeoutError,
+    ModelValidationError,
 )
 
 __all__ = [
@@ -23,6 +27,7 @@ __all__ = [
     "Message",
     "Role",
     "ModelResponse",
+    "Usage",
     "StreamingCallback",
     # 抽象基类
     "ModelClient",
@@ -33,4 +38,7 @@ __all__ = [
     "ModelAuthenticationError",
     "ModelRateLimitError",
     "ModelTimeoutError",
+    "ModelValidationError",
+    "ModelContentFilterError",
+    "ModelServerError",
 ]
