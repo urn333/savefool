@@ -329,11 +329,12 @@ class OllamaClient(ModelClient):
     ) -> ModelResponse:
         """多模态完成对话 (图片理解).
 
-        Ollama支持多模态模型如 llava、gemma4 等。
+        Ollama /api/generate 支持 images 参数传递图片 base64。
+        适用于 llava、gemma4 等多模态模型。
 
         Args:
             messages: 消息列表
-            images: 图片列表 (base64编码)
+            images: 图片列表 (base64编码字符串，不含data:image前缀)
             model: 模型名称(可选)
             **kwargs: 其他参数
 
@@ -341,50 +342,63 @@ class OllamaClient(ModelClient):
             模型响应
         """
         model_name = model or self.model
+        temp = kwargs.get("temperature", self.temperature)
+        max_tok = kwargs.get("max_tokens", self.max_tokens)
 
-        # 构建包含图片的消息
-        vision_messages = []
-        for msg in messages:
-            if msg.role.value == "user" and images:
-                # Ollama格式: 图片作为消息的一部分
-                content = msg.content
-                vision_messages.append({
-                    "role": "user",
-                    "content": content,
-                    "images": images,
-                })
-                images = []  # 只添加一次图片
+        # 提取用户提示词 (最后一条用户消息)
+        prompt = ""
+        for msg in reversed(messages):
+            if msg.role.value == "user":
+                prompt = msg.content
+                break
+        
+        if not prompt:
+            prompt = "请描述这张图片"
+
+        # 清理图片数据 (去掉可能的 data:image 前缀)
+        clean_images = []
+        for img in images:
+            if "," in img:
+                # 有 data:image/jpeg;base64, 前缀
+                clean_images.append(img.split(",", 1)[1])
             else:
-                vision_messages.append({
-                    "role": msg.role.value,
-                    "content": msg.content,
-                })
+                clean_images.append(img)
 
         request_data = {
             "model": model_name,
-            "messages": vision_messages,
+            "prompt": prompt,
+            "images": clean_images,
             "stream": False,
             "options": {
-                "temperature": kwargs.get("temperature", self.temperature),
-                "num_predict": kwargs.get("max_tokens", self.max_tokens),
+                "temperature": temp,
+                "num_predict": max_tok,
             },
         }
 
         logger.info(
             "ollama_vision_request",
             model=model_name,
-            image_count=len(images) if images else 1,
+            image_count=len(clean_images),
+            prompt_length=len(prompt),
         )
 
         try:
             response = await self._client.post(
-                "/api/chat",
+                "/api/generate",
                 json=request_data,
             )
             response.raise_for_status()
             data = response.json()
 
-            content = data.get("message", {}).get("content", "")
+            content = data.get("response", "")
+
+            logger.info(
+                "ollama_vision_response",
+                model=model_name,
+                content_length=len(content),
+                prompt_eval=data.get("prompt_eval_count", 0),
+                eval_count=data.get("eval_count", 0),
+            )
 
             return ModelResponse(
                 content=content,
