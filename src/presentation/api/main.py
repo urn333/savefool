@@ -317,22 +317,28 @@ def _register_static_files(app: FastAPI) -> None:
         @app.get("/web/upload", response_class=HTMLResponse)
         async def upload_page(request: Request):
             """上传页面."""
-            return templates.TemplateResponse("upload.html", {"request": request})
+            return templates.TemplateResponse(
+                request,
+                "upload.html",
+                {}
+            )
         
         @app.get("/web/result/{homework_id}", response_class=HTMLResponse)
         async def result_page(request: Request, homework_id: str):
             """结果页面."""
             return templates.TemplateResponse(
+                request,
                 "result.html",
-                {"request": request, "homework_id": homework_id}
+                {"homework_id": homework_id}
             )
         
         @app.get("/web/statistics", response_class=HTMLResponse)
         async def statistics_page(request: Request):
             """统计页面."""
             return templates.TemplateResponse(
+                request,
                 "statistics.html",
-                {"request": request}
+                {}
             )
 
 
