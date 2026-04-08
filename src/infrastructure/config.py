@@ -113,6 +113,59 @@ class OpenAIConfig(BaseSettings):
         return v
 
 
+class KimiConfig(BaseSettings):
+    """Kimi Code API配置.
+    
+    官方文档: https://www.kimi.com/code/docs/more/third-party-agents.html
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="KIMI_",
+        extra="ignore",
+    )
+
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Kimi Code API密钥 (从 https://www.kimi.com/code 控制台获取)",
+    )
+    api_base: str = Field(
+        default="https://api.kimi.com/coding/v1",
+        description="Kimi Code API基础URL (OpenAI兼容模式)",
+    )
+    model: str = Field(
+        default="kimi-for-coding",
+        description="默认使用的模型 (kimi-for-coding 或 kimi-k2-thinking)",
+    )
+    vision_model: str = Field(
+        default="kimi-k2.5",
+        description="视觉模型",
+    )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数",
+    )
+    timeout: float = Field(
+        default=60.0,
+        description="请求超时时间(秒)",
+    )
+    temperature: float = Field(
+        default=0.7,
+        description="生成温度",
+    )
+    max_tokens: int = Field(
+        default=4096,
+        description="最大生成token数",
+    )
+
+    @field_validator("temperature")
+    @classmethod
+    def validate_temperature(cls, v: float) -> float:
+        """验证温度参数范围."""
+        if not 0.0 <= v <= 2.0:
+            raise ValueError("temperature must be between 0.0 and 2.0")
+        return v
+
+
 class AnthropicConfig(BaseSettings):
     """Anthropic API配置."""
 
@@ -393,10 +446,17 @@ class Settings(BaseSettings):
         description="应用密钥",
     )
 
+    # 模型提供商选择
+    active_model_provider: str = Field(
+        default="openai",
+        description="当前激活的模型提供商 (openai|kimi)",
+    )
+    
     # 子配置
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
+    kimi: KimiConfig = Field(default_factory=KimiConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
     llama: LlamaConfig = Field(default_factory=LlamaConfig)

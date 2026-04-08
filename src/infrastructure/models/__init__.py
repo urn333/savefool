@@ -12,6 +12,11 @@ from src.infrastructure.models.base import (
     Usage,
 )
 from src.infrastructure.models.openai_client import OpenAIClient
+from src.infrastructure.models.client_factory import (
+    create_model_client,
+    get_active_provider,
+    get_active_model,
+)
 from src.infrastructure.models.exceptions import (
     ModelAuthenticationError,
     ModelClientError,
@@ -33,6 +38,10 @@ __all__ = [
     "ModelClient",
     # 具体实现
     "OpenAIClient",
+    # 工厂函数
+    "create_model_client",
+    "get_active_provider",
+    "get_active_model",
     # 异常
     "ModelClientError",
     "ModelAuthenticationError",
