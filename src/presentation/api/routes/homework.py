@@ -6,6 +6,7 @@
 import os
 import shutil
 import uuid
+import base64
 from datetime import datetime
 from typing import List, Optional
 
@@ -14,6 +15,9 @@ from fastapi.background import BackgroundTasks
 
 from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger
+from src.infrastructure.models import create_model_client
+from src.domain.engines.ocr_engine import OCREngine, OCROptions
+from src.domain.engines.model_schedulers import ModelAScheduler, SchedulerConfig, ParsedProblem
 from src.presentation.api.exceptions import (
     BusinessException,
     ErrorCode,
@@ -100,67 +104,155 @@ def _validate_image(file: UploadFile) -> None:
 async def _process_diagnosis(homework_id: str, image_path: str, student_id: str) -> None:
     """异步处理诊断流程.
     
+    使用真实的大模型进行OCR识别和诊断。
+    
     Args:
         homework_id: 作业ID
         image_path: 图片路径
         student_id: 学生ID
     """
+    import time
+    start_time = time.time()
+    
     try:
         logger.info(
             "diagnosis_task_start",
             homework_id=homework_id,
             student_id=student_id,
+            image_path=image_path,
         )
         
-        # 模拟诊断处理（实际应调用诊断引擎）
-        import asyncio
-        await asyncio.sleep(5)  # 模拟处理时间
+        # 检查API Key是否配置
+        try:
+            model_client = create_model_client()
+            logger.info("model_client_created", provider=settings.active_model_provider)
+        except ValueError as e:
+            logger.error("api_key_not_configured", error=str(e))
+            _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
+            _homework_store[homework_id]["error_message"] = str(e)
+            return
+        
+        # 创建OCR引擎
+        ocr_engine = OCREngine(model_client)
+        
+        # 读取图片并转换为base64
+        with open(image_path, "rb") as f:
+            image_bytes = f.read()
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        
+        logger.info("ocr_recognition_start", homework_id=homework_id)
+        
+        # 执行OCR识别
+        ocr_result = await ocr_engine.recognize(
+            image_base64=image_base64,
+            options=OCROptions(
+                detect_subject=True,
+                detect_problem_type=True,
+                extract_student_answer=True,
+                language_hint="zh",
+            ),
+        )
+        
+        if not ocr_result.success:
+            logger.error("ocr_failed", homework_id=homework_id, error=ocr_result.error)
+            _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
+            _homework_store[homework_id]["error_message"] = f"OCR识别失败: {ocr_result.error}"
+            return
+        
+        logger.info(
+            "ocr_complete",
+            homework_id=homework_id,
+            subject=ocr_result.subject,
+            problem_type=ocr_result.problem_type,
+            confidence=ocr_result.confidence,
+        )
+        
+        # 创建模型调度器进行详细诊断
+        scheduler = ModelAScheduler(
+            client=model_client,
+            config=SchedulerConfig(
+                model_id="model_a",
+                model_name=settings.kimi.model if settings.active_model_provider == "kimi" else settings.openai.model,
+                temperature=0.3,
+                max_tokens=2048,
+                timeout=30.0,
+                weight=0.4,
+            ),
+        )
+        
+        # 解析题目
+        parsed_problem = ocr_result.to_parsed_problem()
+        
+        logger.info("model_diagnosis_start", homework_id=homework_id)
+        
+        # 执行模型诊断
+        model_result = await scheduler.schedule(
+            problem=parsed_problem,
+            images=[image_base64],
+        )
+        
+        elapsed_time = time.time() - start_time
+        
+        logger.info(
+            "diagnosis_complete",
+            homework_id=homework_id,
+            is_correct=model_result.is_correct,
+            error_type=model_result.error_type.value if model_result.error_type else None,
+            confidence=model_result.confidence,
+            elapsed_time=elapsed_time,
+        )
         
         # 更新作业状态
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.COMPLETED.value
             _homework_store[homework_id]["completed_at"] = int(datetime.utcnow().timestamp())
-            _homework_store[homework_id]["error_count"] = 1  # 模拟发现1个错题
-            _homework_store[homework_id]["total_count"] = 5  # 模拟总共5题
-            
-            # 添加模拟题目
+            _homework_store[homework_id]["ocr_result"] = {
+                "content": ocr_result.content,
+                "student_answer": ocr_result.student_answer,
+                "subject": ocr_result.subject,
+                "problem_type": ocr_result.problem_type,
+                "knowledge_points": ocr_result.knowledge_points,
+                "confidence": ocr_result.confidence,
+            }
+            _homework_store[homework_id]["diagnosis_result"] = {
+                "is_correct": model_result.is_correct,
+                "error_type": model_result.error_type.value if model_result.error_type else None,
+                "confidence": model_result.confidence,
+                "diagnosis": model_result.diagnosis,
+            }
             _homework_store[homework_id]["questions"] = [
                 {
                     "question_id": generate_id("q"),
-                    "type": "fill_blank",
-                    "content": "3 + 5 = ?",
-                    "student_answer": "7",
-                    "correct_answer": "8",
-                    "is_correct": False,
-                    "knowledge_point": "进位加法",
-                    "difficulty": "easy",
-                },
-                {
-                    "question_id": generate_id("q"),
-                    "type": "fill_blank",
-                    "content": "10 - 4 = ?",
-                    "student_answer": "6",
-                    "correct_answer": "6",
-                    "is_correct": True,
-                    "knowledge_point": "减法运算",
-                    "difficulty": "easy",
+                    "type": ocr_result.problem_type,
+                    "content": ocr_result.content[:200] if ocr_result.content else "未知题目",
+                    "student_answer": ocr_result.student_answer or "未识别",
+                    "correct_answer": "待确认",  # 大模型未提供标准答案
+                    "is_correct": model_result.is_correct,
+                    "knowledge_point": ocr_result.knowledge_points[0] if ocr_result.knowledge_points else "未知",
+                    "difficulty": "unknown",
                 },
             ]
+            _homework_store[homework_id]["error_count"] = 0 if model_result.is_correct else 1
+            _homework_store[homework_id]["total_count"] = 1
+            _homework_store[homework_id]["raw_model_response"] = model_result.diagnosis.get("raw_response", "")
         
         logger.info(
             "diagnosis_task_complete",
             homework_id=homework_id,
-            elapsed_time=5,
+            elapsed_time=elapsed_time,
         )
         
     except Exception as e:
+        elapsed_time = time.time() - start_time
         logger.exception(
             "diagnosis_task_failed",
             homework_id=homework_id,
             error=str(e),
+            elapsed_time=elapsed_time,
         )
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
+            _homework_store[homework_id]["error_message"] = str(e)
 
 
 @router.post(

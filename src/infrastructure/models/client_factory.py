@@ -5,9 +5,10 @@
 
 from typing import Optional
 
-from src.infrastructure.config import get_settings, OpenAIConfig, KimiConfig
+from src.infrastructure.config import get_settings, OpenAIConfig, KimiConfig, OllamaConfig
 from src.infrastructure.models.base import ModelClient
 from src.infrastructure.models.openai_client import OpenAIClient
+from src.infrastructure.models.ollama_client import OllamaClient
 from src.infrastructure.logging import get_logger
 
 logger = get_logger(__name__)
@@ -81,6 +82,27 @@ def create_model_client(
             max_retries=max_retries,
         )
         
+    elif provider == 'ollama':
+        # 使用 Ollama 本地/局域网服务
+        ollama_config: OllamaConfig = settings.ollama
+        api_base = ollama_config.api_base
+        model_name = model or ollama_config.model
+        
+        logger.info(
+            "creating_ollama_client",
+            model=model_name,
+            api_base=api_base,
+        )
+        
+        return OllamaClient(
+            api_base=api_base,
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens or ollama_config.max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+        
     elif provider == 'openai':
         # 使用 OpenAI
         openai_config: OpenAIConfig = settings.openai
@@ -108,7 +130,7 @@ def create_model_client(
             max_retries=max_retries,
         )
     else:
-        raise ValueError(f"不支持的模型提供商: {provider}，请使用 'openai' 或 'kimi'")
+        raise ValueError(f"不支持的模型提供商: {provider}，请使用 'openai'、'kimi' 或 'ollama'")
 
 
 def get_active_provider() -> str:
