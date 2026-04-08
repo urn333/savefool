@@ -86,8 +86,9 @@ class TestSettings:
 
     def test_default_settings(self):
         """测试默认配置."""
-        settings = Settings()
-        assert settings.app_name == "AI Tutor"
+        # 使用 _env_file=None 避免加载项目 .env 文件
+        settings = Settings(_env_file=None)
+        assert settings.app_name == "AI助教系统"
         assert settings.app_version == "1.0.0"
         assert settings.debug is False
 

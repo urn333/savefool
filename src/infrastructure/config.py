@@ -377,7 +377,7 @@ class Settings(BaseSettings):
         description="运行环境",
     )
     app_name: str = Field(
-        default="AI Tutor",
+        default="AI助教系统",
         description="应用名称",
     )
     app_version: str = Field(

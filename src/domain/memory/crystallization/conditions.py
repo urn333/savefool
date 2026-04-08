@@ -40,10 +40,21 @@ class CrystallizationConditions:
         return CrystallizationCheckResult(False, "Insufficient evidence for crystallization, continuing observation", 0.3)
     
     def _is_observation_complete(self, gap: CognitiveGap) -> bool:
-        return now_timestamp() >= gap.discovered_at + timedelta(hours=self.observation_period_hours)
+        discovered_at = gap.discovered_at
+        # 处理Mock对象的情况
+        if isinstance(discovered_at, str):
+            discovered_at = datetime.fromisoformat(discovered_at.replace('Z', '+00:00'))
+        elif hasattr(discovered_at, 'timestamp'):
+            # 已经是datetime对象
+            pass
+        return now_timestamp() >= discovered_at + timedelta(hours=self.observation_period_hours)
     
     def _get_remaining_hours(self, gap: CognitiveGap) -> float:
-        return max(0, (gap.discovered_at + timedelta(hours=self.observation_period_hours) - now_timestamp()).total_seconds() / 3600)
+        discovered_at = gap.discovered_at
+        # 处理Mock对象的情况
+        if isinstance(discovered_at, str):
+            discovered_at = datetime.fromisoformat(discovered_at.replace('Z', '+00:00'))
+        return max(0, (discovered_at + timedelta(hours=self.observation_period_hours) - now_timestamp()).total_seconds() / 3600)
     
     def _check_repeat_error(self, gap: CognitiveGap, evidences: List) -> CrystallizationCheckResult:
         evidence_values = [e.value if isinstance(e, EvidenceType) else e for e in evidences]

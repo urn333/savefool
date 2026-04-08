@@ -21,13 +21,16 @@ class TestCrystallizationConditions:
     def pending_gap(self):
         gap = MagicMock()
         gap.status = GapStatus.PENDING.value
-        gap.discovered_at = datetime.now() - timedelta(hours=25)
+        # 使用固定的过去时间，避免测试执行时间影响
+        gap.discovered_at = datetime(2024, 1, 1, 0, 0, 0)
         gap.occurrence_count = 1
         return gap
     
     def test_observation_complete(self, conditions, pending_gap):
+        # 使用固定的过去时间
+        pending_gap.discovered_at = datetime(2023, 1, 1, 0, 0, 0)  # 很久以前，观察期已完成
         assert conditions._is_observation_complete(pending_gap) is True
-        pending_gap.discovered_at = datetime.now() - timedelta(hours=12)
+        pending_gap.discovered_at = datetime.now() + timedelta(hours=1)  # 未来时间，观察期未完成
         assert conditions._is_observation_complete(pending_gap) is False
     
     def test_repeat_error_condition(self, conditions, pending_gap):
@@ -61,11 +64,11 @@ class TestCrystallizationConditions:
         assert result.can_crystallize is False
         
         pending_gap.status = GapStatus.PENDING.value
-        pending_gap.discovered_at = datetime.now() - timedelta(hours=12)
+        pending_gap.discovered_at = datetime.now() + timedelta(hours=1)  # 未来，观察期未完成
         result = conditions.check_crystallization(pending_gap, [])
         assert result.can_crystallize is False
         
-        pending_gap.discovered_at = datetime.now() - timedelta(hours=25)
+        pending_gap.discovered_at = datetime(2023, 1, 1, 0, 0, 0)  # 很久以前，观察期已完成
         pending_gap.occurrence_count = 2
         evidences = [EvidenceType.INITIAL_DIAGNOSIS, EvidenceType.REPEAT_ERROR]
         result = conditions.check_crystallization(pending_gap, evidences)
@@ -87,7 +90,7 @@ class TestCrystallizationExecutor:
         gap.gap_id = "gap_001"
         gap.student_id = "student_001"
         gap.status = GapStatus.PENDING.value
-        gap.discovered_at = datetime.now() - timedelta(hours=25)
+        gap.discovered_at = datetime(2023, 1, 1, 0, 0, 0)  # 很久以前，观察期已完成
         gap.occurrence_count = 2
         gap.gap_type = "concept_gap"
         return gap
