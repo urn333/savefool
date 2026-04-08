@@ -127,6 +127,27 @@ class OllamaClient(ModelClient):
             }
             for msg in messages
         ]
+    
+    def _format_messages_for_generate(self, messages: List[Message]) -> str:
+        """将消息列表格式化为单个prompt字符串 (用于 /api/generate).
+        
+        Args:
+            messages: 消息列表
+            
+        Returns:
+            格式化后的prompt字符串
+        """
+        parts = []
+        for msg in messages:
+            role = msg.role.value
+            content = msg.content
+            if role == "system":
+                parts.append(f"System: {content}")
+            elif role == "user":
+                parts.append(f"User: {content}")
+            elif role == "assistant":
+                parts.append(f"Assistant: {content}")
+        return "\n\n".join(parts) + "\n\nAssistant:"
 
     async def complete(
         self,
@@ -170,14 +191,26 @@ class OllamaClient(ModelClient):
 
         for attempt in range(1, self.max_retries + 1):
             try:
+                # Ollama /api/generate 格式
+                prompt = self._format_messages_for_generate(messages)
+                generate_request = {
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": temp,
+                        "num_predict": max_tok,
+                    },
+                }
+                
                 response = await self._client.post(
-                    "/api/chat",
-                    json=request_data,
+                    "/api/generate",
+                    json=generate_request,
                 )
                 response.raise_for_status()
                 data = response.json()
 
-                content = data.get("message", {}).get("content", "")
+                content = data.get("response", "")
 
                 logger.info(
                     "ollama_response",
@@ -233,9 +266,11 @@ class OllamaClient(ModelClient):
         temp = kwargs.get("temperature", self.temperature)
         max_tok = kwargs.get("max_tokens", self.max_tokens)
 
+        # Ollama /api/generate 格式
+        prompt = self._format_messages_for_generate(messages)
         request_data = {
             "model": model_name,
-            "messages": self._convert_messages(messages),
+            "prompt": prompt,
             "stream": True,
             "options": {
                 "temperature": temp,
@@ -248,7 +283,7 @@ class OllamaClient(ModelClient):
         try:
             async with self._client.stream(
                 "POST",
-                "/api/chat",
+                "/api/generate",
                 json=request_data,
             ) as response:
                 response.raise_for_status()
@@ -259,7 +294,8 @@ class OllamaClient(ModelClient):
 
                     try:
                         data = json.loads(line)
-                        chunk = data.get("message", {}).get("content", "")
+                        # /api/generate 返回的是 "response" 字段
+                        chunk = data.get("response", "")
                         full_content += chunk
 
                         if callback:
