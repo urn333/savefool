@@ -38,9 +38,9 @@ async def lifespan(app: FastAPI):
     # 记录配置信息（脱敏）
     logger.info(
         "api_config",
-        env=settings.ENV,
+        env=settings.env.value,
         debug=settings.debug,
-        api_prefix=settings.API_PREFIX,
+        api_prefix=settings.api_prefix,
     )
     
     yield
