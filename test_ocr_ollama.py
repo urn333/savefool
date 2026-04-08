@@ -11,11 +11,14 @@ from src.domain.engines.ocr_engine import OCREngine, OCROptions
 
 async def test_ocr():
     """测试OCR识别."""
+    import time
+    start = time.time()
+    
     # 创建Ollama客户端（使用更长的超时）
     client = OllamaClient(
         api_base="http://192.168.3.110:11434",
         model="gemma4:31b-it-q8_0",
-        timeout=300.0,
+        timeout=600.0,  # 10分钟超时
     )
     
     # 创建OCR引擎
@@ -30,6 +33,7 @@ async def test_ocr():
     
     # 执行OCR识别
     print("\n开始识别...")
+    print(f"[时间] {time.strftime('%H:%M:%S')}")
     try:
         result = await ocr_engine.recognize(
             image_path=image_path,
@@ -42,8 +46,9 @@ async def test_ocr():
             ),
         )
         
+        elapsed = time.time() - start
         if result.success:
-            print("\n✅ 识别成功!")
+            print(f"\n✅ 识别成功! (耗时: {elapsed:.1f}s)")
             print(f"\n题目内容:\n{result.content}")
             print(f"\n学生答案: {result.student_answer}")
             print(f"学科: {result.subject}")
@@ -51,10 +56,12 @@ async def test_ocr():
             print(f"知识点: {result.knowledge_points}")
             print(f"置信度: {result.confidence}")
         else:
-            print(f"\n❌ 识别失败: {result.error}")
+            elapsed = time.time() - start
+            print(f"\n❌ 识别失败: {result.error} (耗时: {elapsed:.1f}s)")
             
     except Exception as e:
-        print(f"\n❌ 异常: {type(e).__name__}: {e}")
+        elapsed = time.time() - start
+        print(f"\n❌ 异常 ({elapsed:.1f}s): {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
 
