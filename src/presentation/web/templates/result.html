@@ -234,6 +234,12 @@
     border-radius: 10px;
     padding: 16px;
     margin-top: 16px;
+    transition: all 0.3s;
+}
+
+.diagnosis-result-box.correct {
+    background: #f0fdf4;
+    border-color: #bbf7d0;
 }
 
 .diagnosis-result-title {
@@ -243,6 +249,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
+}
+
+.diagnosis-result-title.correct {
+    color: #16a34a;
 }
 
 .diagnosis-info-grid {
@@ -481,40 +492,54 @@ function renderResult(data) {
     }
     
     questionsList.innerHTML = questions.map((q, index) => {
-        // 构建诊断信息HTML（如果是错题且诊断结果存在）
+        // 构建诊断信息HTML（只要有诊断结果就显示）
         let diagnosisHTML = '';
-        if (q.is_correct === false && diagnosisResult && diagnosisResult.error_type) {
+        const hasDiagnosis = diagnosisResult && (diagnosisResult.error_type || diagnosisResult.diagnosis);
+        const hasOCR = ocrResult && (ocrResult.knowledge_points || ocrResult.problem_type);
+        
+        if (hasDiagnosis || hasOCR) {
             const confidence = diagnosisResult.confidence || 0;
             const confidenceClass = confidence >= 0.8 ? 'high' : (confidence >= 0.5 ? 'medium' : 'low');
             const confidenceText = confidence >= 0.8 ? '高置信度' : (confidence >= 0.5 ? '中等置信度' : '低置信度');
             
+            // 诊断结果标题颜色根据对错调整
+            const titleColor = diagnosisResult.is_correct === false ? '#dc2626' : '#16a34a';
+            const boxBg = diagnosisResult.is_correct === false ? '#fef2f2' : '#f0fdf4';
+            const boxBorder = diagnosisResult.is_correct === false ? '#fecaca' : '#bbf7d0';
+            
             diagnosisHTML = `
-                <div class="diagnosis-result-box">
-                    <div class="diagnosis-result-title">
+                <div class="diagnosis-result-box" style="background: ${boxBg}; border-color: ${boxBorder};">
+                    <div class="diagnosis-result-title" style="color: ${titleColor};">
                         🔍 AI诊断分析
-                        <span class="confidence-badge ${confidenceClass}">${confidenceText} (${(confidence * 100).toFixed(0)}%)</span>
+                        ${confidence > 0 ? `<span class="confidence-badge ${confidenceClass}">${confidenceText} (${(confidence * 100).toFixed(0)}%)</span>` : ''}
                     </div>
                     <div class="diagnosis-info-grid">
+                        ${diagnosisResult.error_type ? `
                         <div class="diagnosis-info-item">
                             <div class="diagnosis-info-label">错误类型</div>
-                            <div class="diagnosis-info-value">${diagnosisResult.error_type || '未知'}</div>
+                            <div class="diagnosis-info-value">${diagnosisResult.error_type}</div>
                         </div>
+                        ` : ''}
                         <div class="diagnosis-info-item">
-                            <div class="diagnosis-info-label">是否正确</div>
-                            <div class="diagnosis-info-value">${diagnosisResult.is_correct ? '✓ 正确' : '✗ 错误'}</div>
+                            <div class="diagnosis-info-label">诊断结果</div>
+                            <div class="diagnosis-info-value">${diagnosisResult.is_correct === true ? '✓ 正确' : (diagnosisResult.is_correct === false ? '✗ 错误' : '待确认')}</div>
                         </div>
+                        ${ocrResult.problem_type ? `
+                        <div class="diagnosis-info-item">
+                            <div class="diagnosis-info-label">题型</div>
+                            <div class="diagnosis-info-value">${ocrResult.problem_type}</div>
+                        </div>
+                        ` : ''}
                     </div>
-                    ${diagnosisResult.diagnosis ? `
+                    ${diagnosisResult.diagnosis && typeof diagnosisResult.diagnosis === 'object' && Object.keys(diagnosisResult.diagnosis).length > 0 ? `
                         <div class="diagnosis-analysis">
                             <div class="diagnosis-analysis-title">诊断详情</div>
                             <div class="diagnosis-analysis-content">
-                                ${typeof diagnosisResult.diagnosis === 'object' ? 
-                                    Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('') : 
-                                    diagnosisResult.diagnosis}
+                                ${Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('')}
                             </div>
                         </div>
                     ` : ''}
-                    ${ocrResult.knowledge_points ? `
+                    ${ocrResult.knowledge_points && ocrResult.knowledge_points.length > 0 ? `
                         <div class="diagnosis-analysis" style="margin-top: 8px;">
                             <div class="diagnosis-analysis-title">涉及知识点</div>
                             <div class="diagnosis-analysis-content">
