@@ -58,7 +58,14 @@ def create_model_client(
         kimi_config: KimiConfig = settings.kimi
         api_key = kimi_config.api_key
         api_base = kimi_config.api_base
-        model_name = model or kimi_config.model
+        
+        # 判断是否启用 Thinking 模式
+        if kimi_config.enable_thinking and model is None:
+            model_name = kimi_config.thinking_model
+            logger.info("kimi_thinking_mode_enabled", model=model_name)
+        else:
+            model_name = model or kimi_config.model
+            
         vision_model = kimi_config.vision_model
         
         if not api_key:
@@ -71,6 +78,7 @@ def create_model_client(
             "creating_kimi_client",
             model=model_name,
             api_base=api_base,
+            thinking_mode=kimi_config.enable_thinking,
         )
         
         return OpenAIClient(

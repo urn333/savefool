@@ -117,6 +117,11 @@ class KimiConfig(BaseSettings):
     """Kimi Code API配置.
     
     官方文档: https://www.kimi.com/code/docs/more/third-party-agents.html
+    
+    Thinking模式:
+    - 启用后模型会展示思考过程，适合复杂推理任务
+    - 自动选择kimi-k2-thinking模型
+    - 可通过环境变量 KIMI_ENABLE_THINKING=true 启用
     """
 
     model_config = SettingsConfigDict(
@@ -139,6 +144,14 @@ class KimiConfig(BaseSettings):
     vision_model: str = Field(
         default="kimi-k2.5",
         description="视觉模型",
+    )
+    enable_thinking: bool = Field(
+        default=False,
+        description="是否启用Thinking模式（展示思考过程）",
+    )
+    thinking_model: str = Field(
+        default="kimi-k2-thinking",
+        description="Thinking模式使用的模型",
     )
     max_retries: int = Field(
         default=3,
@@ -562,7 +575,7 @@ class Settings(BaseSettings):
     # 模型提供商选择
     active_model_provider: str = Field(
         default="openai",
-        description="当前激活的模型提供商 (openai|kimi|ollama|gemini)",
+        description="当前激活的模型提供商 (openai|kimi|ollama|gemini)，推荐kimi（国内访问快，支持thinking模式）",
     )
     
     # 子配置
