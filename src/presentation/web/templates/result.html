@@ -531,11 +531,11 @@ function renderResult(data) {
                         </div>
                         ` : ''}
                     </div>
-                    ${diagnosisResult.diagnosis && typeof diagnosisResult.diagnosis === 'object' && Object.keys(diagnosisResult.diagnosis).length > 0 ? `
+                    ${diagnosisResult.diagnosis ? `
                         <div class="diagnosis-analysis">
                             <div class="diagnosis-analysis-title">诊断详情</div>
                             <div class="diagnosis-analysis-content">
-                                ${Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('')}
+                                ${typeof diagnosisResult.diagnosis === 'string' ? diagnosisResult.diagnosis : Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('')}
                             </div>
                         </div>
                     ` : ''}
