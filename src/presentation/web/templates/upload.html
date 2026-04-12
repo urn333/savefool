@@ -2,12 +2,27 @@
 
 {% block title %}上传作业 - AI助教系统{% endblock %}
 
+{% block extra_head %}
+<!-- 图片裁剪/框选库 -->
+<script src="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cropperjs@1.5.13/dist/cropper.min.css">
+{% endblock %}
+
 {% block extra_css %}
+.preview-container {
+    position: relative;
+    margin-top: 16px;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f5f5f5;
+    display: none;
+}
+
 .preview-image {
     max-width: 100%;
-    max-height: 300px;
-    border-radius: 10px;
-    margin-top: 16px;
+    max-height: 400px;
+    display: block;
+    margin: 0 auto;
 }
 
 .char-count {
@@ -23,6 +38,146 @@
 
 .char-count.error {
     color: #e74c3c;
+}
+
+/* 模式选择样式 */
+.mode-selector {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.mode-option {
+    position: relative;
+    padding: 16px 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 12px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s ease;
+    background: #fff;
+}
+
+.mode-option:hover {
+    border-color: #4a6cf7;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(74, 108, 247, 0.15);
+}
+
+.mode-option.active {
+    border-color: #4a6cf7;
+    background: linear-gradient(135deg, #4a6cf7 0%, #6a8cff 100%);
+    color: white;
+}
+
+.mode-option .mode-icon {
+    font-size: 2rem;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.mode-option .mode-name {
+    font-weight: 600;
+    font-size: 1rem;
+    display: block;
+}
+
+.mode-option .mode-desc {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    margin-top: 4px;
+    display: block;
+}
+
+.mode-option.active .mode-desc {
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* 单题提示 */
+.single-tip {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    font-size: 0.9rem;
+    color: #856404;
+    display: none;
+}
+
+.single-tip.show {
+    display: block;
+}
+
+/* 框选工具栏 */
+.selection-toolbar {
+    display: none;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    text-align: center;
+}
+
+.selection-toolbar.show {
+    display: block;
+}
+
+.selection-toolbar button {
+    margin: 0 4px;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.selection-toolbar .btn-confirm {
+    background: #28a745;
+    color: white;
+}
+
+.selection-toolbar .btn-confirm:hover {
+    background: #218838;
+}
+
+.selection-toolbar .btn-clear {
+    background: #6c757d;
+    color: white;
+}
+
+.selection-toolbar .btn-clear:hover {
+    background: #5a6268;
+}
+
+.selection-info {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+/* 已选区域标记 */
+.selected-region-tag {
+    display: inline-flex;
+    align-items: center;
+    background: #4a6cf7;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 0.85rem;
+    margin-top: 8px;
+}
+
+.selected-region-tag .remove-btn {
+    margin-left: 8px;
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.selected-region-tag .remove-btn:hover {
+    opacity: 1;
 }
 {% endblock %}
 
@@ -50,6 +205,36 @@
             </select>
         </div>
         
+        <!-- 模式选择 -->
+        <div class="form-group">
+            <label class="form-label">选择分析模式</label>
+            <div class="mode-selector">
+                <div class="mode-option active" data-mode="diagnosis">
+                    <span class="mode-icon">🔍</span>
+                    <span class="mode-name">智能诊断</span>
+                    <span class="mode-desc">分析所有题目的对错</span>
+                </div>
+                <div class="mode-option" data-mode="solution">
+                    <span class="mode-icon">📝</span>
+                    <span class="mode-name">查看解答</span>
+                    <span class="mode-desc">获取详细解题步骤</span>
+                </div>
+                <div class="mode-option" data-mode="explain">
+                    <span class="mode-icon">📚</span>
+                    <span class="mode-name">知识点讲解</span>
+                    <span class="mode-desc">学习相关知识点</span>
+                </div>
+                <div class="mode-option" data-mode="single">
+                    <span class="mode-icon">🎯</span>
+                    <span class="mode-name">单题深度分析</span>
+                    <span class="mode-desc">针对一道题深度讲解</span>
+                </div>
+            </div>
+            <div class="single-tip" id="singleTip">
+                💡 <strong>提示：</strong>选择图片后，请框选您要分析的具体题目区域
+            </div>
+        </div>
+        
         <div class="form-group">
             <label class="form-label">作业照片</label>
             <div class="upload-area" id="uploadArea">
@@ -60,7 +245,23 @@
                 </p>
                 <input type="file" id="fileInput" accept="image/*" style="display: none;">
             </div>
-            <img id="preview" class="preview-image" style="display: none;">
+            
+            <!-- 图片预览和框选区域 -->
+            <div class="preview-container" id="previewContainer">
+                <img id="preview" class="preview-image">
+            </div>
+            
+            <!-- 框选工具栏 -->
+            <div class="selection-toolbar" id="selectionToolbar">
+                <div>
+                    <button type="button" class="btn-confirm" id="confirmSelection">✓ 确认框选</button>
+                    <button type="button" class="btn-clear" id="clearSelection">✗ 清除</button>
+                </div>
+                <div class="selection-info" id="selectionInfo">拖动鼠标框选题目区域</div>
+            </div>
+            
+            <!-- 已选区域显示 -->
+            <div id="selectedRegionDisplay"></div>
         </div>
         
         <div class="form-group">
@@ -68,14 +269,14 @@
             <textarea 
                 class="form-textarea" 
                 id="description" 
-                placeholder="描述一下孩子做题时遇到的问题..."
+                placeholder="描述一下孩子做题时遇到的问题，或指定想分析的题目..."
                 maxlength="140"
             ></textarea>
             <div class="char-count" id="charCount">0/140</div>
         </div>
         
         <button type="submit" class="btn btn-primary" id="submitBtn" style="width: 100%;">
-            🚀 开始诊断
+            🚀 开始分析
         </button>
     </form>
 </div>
@@ -83,7 +284,7 @@
 <div class="card" style="display: none;" id="progressCard">
     <h2 class="card-title">
         <span>⏳</span>
-        诊断中
+        分析中
     </h2>
     <div class="progress-container">
         <div class="progress-bar">
@@ -98,11 +299,44 @@
 {% endblock %}
 
 {% block extra_js %}
+// 全局状态
+let selectedFile = null;
+let selectedMode = 'diagnosis';
+let cropper = null;
+let selectedRegion = null;
+
+// 模式选择
+const modeOptions = document.querySelectorAll('.mode-option');
+const singleTip = document.getElementById('singleTip');
+const selectionToolbar = document.getElementById('selectionToolbar');
+const previewContainer = document.getElementById('previewContainer');
+
+modeOptions.forEach(option => {
+    option.addEventListener('click', () => {
+        // 移除所有active
+        modeOptions.forEach(o => o.classList.remove('active'));
+        // 添加active到当前
+        option.classList.add('active');
+        // 更新模式
+        selectedMode = option.dataset.mode;
+        
+        // 显示/隐藏单题提示
+        if (selectedMode === 'single') {
+            singleTip.classList.add('show');
+            if (selectedFile) {
+                selectionToolbar.classList.add('show');
+            }
+        } else {
+            singleTip.classList.remove('show');
+            selectionToolbar.classList.remove('show');
+        }
+    });
+});
+
 // 文件上传处理
 const uploadArea = document.getElementById('uploadArea');
 const fileInput = document.getElementById('fileInput');
 const preview = document.getElementById('preview');
-let selectedFile = null;
 
 uploadArea.addEventListener('click', () => fileInput.click());
 
@@ -150,9 +384,97 @@ function handleFile(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
         preview.src = e.target.result;
-        preview.style.display = 'block';
+        previewContainer.style.display = 'block';
+        
+        // 初始化裁剪器（用于单题模式的框选）
+        if (cropper) {
+            cropper.destroy();
+        }
+        
+        // 如果是单题模式，初始化框选功能
+        if (selectedMode === 'single') {
+            initCropper();
+            selectionToolbar.classList.add('show');
+        }
     };
     reader.readAsDataURL(file);
+}
+
+// 初始化框选功能
+function initCropper() {
+    cropper = new Cropper(preview, {
+        viewMode: 1,
+        dragMode: 'crop',
+        autoCropArea: 0.3,
+        restore: false,
+        guides: true,
+        center: true,
+        highlight: false,
+        cropBoxMovable: true,
+        cropBoxResizable: true,
+        toggleDragModeOnDblclick: false,
+        background: false,
+        modal: true,
+        ready() {
+            document.getElementById('selectionInfo').textContent = '拖动调整框选区域，然后点击"确认框选"';
+        }
+    });
+}
+
+// 确认框选
+document.getElementById('confirmSelection').addEventListener('click', () => {
+    if (!cropper) return;
+    
+    const data = cropper.getData();
+    const canvasData = cropper.getCanvasData();
+    const imageData = cropper.getImageData();
+    
+    // 计算相对坐标（相对于原图的百分比）
+    selectedRegion = {
+        x: Math.round((data.x / imageData.naturalWidth) * 1000) / 1000,
+        y: Math.round((data.y / imageData.naturalHeight) * 1000) / 1000,
+        width: Math.round((data.width / imageData.naturalWidth) * 1000) / 1000,
+        height: Math.round((data.height / imageData.naturalHeight) * 1000) / 1000,
+        // 额外保存像素值供显示
+        pixelX: Math.round(data.x),
+        pixelY: Math.round(data.y),
+        pixelWidth: Math.round(data.width),
+        pixelHeight: Math.round(data.height)
+    };
+    
+    // 显示已选区域
+    const display = document.getElementById('selectedRegionDisplay');
+    display.innerHTML = `
+        <div class="selected-region-tag">
+            已选区域: ${selectedRegion.pixelWidth}×${selectedRegion.pixelHeight} 
+            (位置: ${selectedRegion.pixelX},${selectedRegion.pixelY})
+            <span class="remove-btn" onclick="clearSelection()">✕</span>
+        </div>
+    `;
+    
+    // 隐藏工具栏
+    selectionToolbar.classList.remove('show');
+    
+    // 销毁cropper但保留选区标记
+    if (cropper) {
+        cropper.destroy();
+        cropper = null;
+    }
+    
+    showAlert('区域选择成功！', 'success');
+});
+
+// 清除框选
+document.getElementById('clearSelection').addEventListener('click', clearSelection);
+
+function clearSelection() {
+    selectedRegion = null;
+    document.getElementById('selectedRegionDisplay').innerHTML = '';
+    document.getElementById('selectionInfo').textContent = '拖动鼠标框选题目区域';
+    
+    if (selectedMode === 'single' && selectedFile) {
+        initCropper();
+    }
 }
 
 // 字符计数
@@ -178,6 +500,17 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         return;
     }
     
+    // 单题模式必须选择区域
+    if (selectedMode === 'single' && !selectedRegion) {
+        showAlert('请先框选要分析的题目区域', 'error');
+        // 显示工具栏
+        selectionToolbar.classList.add('show');
+        if (!cropper) {
+            initCropper();
+        }
+        return;
+    }
+    
     const submitBtn = document.getElementById('submitBtn');
     const progressCard = document.getElementById('progressCard');
     
@@ -188,10 +521,16 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     formData.append('image', selectedFile);
     formData.append('student_id', document.getElementById('studentId').value);
     formData.append('subject', document.getElementById('subject').value);
+    formData.append('mode', selectedMode);
     
     const description = document.getElementById('description').value;
     if (description) {
         formData.append('description', description);
+    }
+    
+    // 添加框选区域（单题模式）
+    if (selectedMode === 'single' && selectedRegion) {
+        formData.append('selected_regions', JSON.stringify([selectedRegion]));
     }
     
     try {
@@ -236,7 +575,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                     if (data.status === 'completed' || data.progress >= 100) {
                         clearInterval(pollingInterval);
                         progressFill.style.width = '100%';
-                        progressText.textContent = '诊断完成！';
+                        progressText.textContent = '分析完成！';
                         
                         // 跳转到结果页面
                         setTimeout(() => {
@@ -244,13 +583,13 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                         }, 500);
                     } else if (data.status === 'failed') {
                         clearInterval(pollingInterval);
-                        throw new Error(data.message || '诊断失败');
+                        throw new Error(data.message || '分析失败');
                     }
                 }
             } catch (e) {
                 console.error('获取进度失败:', e);
             }
-        }, 1000); // 每秒轮询一次
+        }, 1000);
         
         // 设置最大轮询时间（90秒）
         setTimeout(() => {

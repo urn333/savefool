@@ -86,6 +86,16 @@ MathJax = {
     color: #3c3;
 }
 
+.question-status.solution {
+    background: #e3f2fd;
+    color: #1976d2;
+}
+
+.question-status.explain {
+    background: #f3e5f5;
+    color: #7b1fa2;
+}
+
 .question-content {
     font-size: 1.1rem;
     margin-bottom: 12px;
@@ -133,40 +143,6 @@ MathJax = {
     font-weight: 600;
     margin-bottom: 12px;
     color: #333;
-}
-
-.diagnosis-options {
-    display: grid;
-    gap: 12px;
-}
-
-.diagnosis-option {
-    border: 2px solid #e0e0e0;
-    border-radius: 10px;
-    padding: 16px;
-    cursor: pointer;
-    transition: all 0.3s;
-}
-
-.diagnosis-option:hover {
-    border-color: #667eea;
-    background: #f8f9ff;
-}
-
-.diagnosis-option.selected {
-    border-color: #667eea;
-    background: #f0f3ff;
-}
-
-.option-label {
-    font-weight: 600;
-    color: #667eea;
-    margin-bottom: 4px;
-}
-
-.option-desc {
-    font-size: 0.9rem;
-    color: #666;
 }
 
 .explanation-box {
@@ -260,6 +236,16 @@ MathJax = {
     border-color: #bbf7d0;
 }
 
+.diagnosis-result-box.solution {
+    background: #f0f7ff;
+    border-color: #bfdbfe;
+}
+
+.diagnosis-result-box.explain {
+    background: #faf5ff;
+    border-color: #e9d5ff;
+}
+
 .diagnosis-result-title {
     font-weight: 600;
     color: #dc2626;
@@ -272,6 +258,14 @@ MathJax = {
 
 .diagnosis-result-title.correct {
     color: #16a34a;
+}
+
+.diagnosis-result-title.solution {
+    color: #2563eb;
+}
+
+.diagnosis-result-title.explain {
+    color: #7c3aed;
 }
 
 .diagnosis-info-grid {
@@ -340,6 +334,206 @@ MathJax = {
 .confidence-badge.low {
     background: #fee2e2;
     color: #991b1b;
+}
+
+/* 解题步骤样式 */
+.solution-box {
+    background: #f0f7ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.solution-box .solution-title {
+    font-weight: 600;
+    color: #1e40af;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.solution-step {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border-left: 3px solid #3b82f6;
+}
+
+.solution-step:last-child {
+    margin-bottom: 0;
+}
+
+.solution-step-number {
+    font-weight: 600;
+    color: #3b82f6;
+    margin-bottom: 4px;
+}
+
+.key-points {
+    background: #eff6ff;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+}
+
+.key-points-title {
+    font-weight: 600;
+    color: #1e40af;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+/* 知识点讲解样式 */
+.knowledge-box {
+    background: #faf5ff;
+    border: 1px solid #e9d5ff;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.knowledge-box .knowledge-title {
+    font-weight: 600;
+    color: #6b21a8;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.knowledge-item {
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.knowledge-item:last-child {
+    margin-bottom: 0;
+}
+
+.knowledge-name {
+    font-weight: 600;
+    color: #7c3aed;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+}
+
+.knowledge-explanation {
+    color: #555;
+    line-height: 1.7;
+    margin-bottom: 12px;
+}
+
+.knowledge-examples {
+    background: #f3e8ff;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.knowledge-examples-title {
+    font-weight: 600;
+    color: #7c3aed;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+}
+
+.mistakes-box {
+    background: #fef2f2;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.mistakes-title {
+    font-weight: 600;
+    color: #dc2626;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+}
+
+/* 单题深度分析样式 */
+.single-analysis-box {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.single-analysis-box .analysis-title {
+    font-weight: 600;
+    color: #c2410c;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.analysis-section {
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+}
+
+.analysis-section:last-child {
+    margin-bottom: 0;
+}
+
+.analysis-section-title {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 1rem;
+}
+
+.extension-box {
+    background: #ecfdf5;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.extension-title {
+    font-weight: 600;
+    color: #059669;
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+}
+
+/* 模式标签 */
+.mode-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.mode-badge.diagnosis {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.mode-badge.solution {
+    background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+    color: white;
+}
+
+.mode-badge.explain {
+    background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
+    color: white;
+}
+
+.mode-badge.single {
+    background: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+    color: white;
 }
 
 .raw-response-box {
@@ -420,16 +614,21 @@ MathJax = {
 {% block content %}
 <div id="loadingState" class="card loading-state">
     <div class="spinner"></div>
-    <p>正在加载诊断结果...</p>
+    <p>正在加载分析结果...</p>
 </div>
 
 <div id="resultContainer" style="display: none;">
+    <!-- 结果头部 -->
     <div class="card">
-        <h2 class="card-title">
-            <span>📊</span>
-            诊断结果
-        </h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h2 class="card-title" style="margin: 0;">
+                <span>📊</span>
+                <span id="resultTitle">分析结果</span>
+            </h2>
+            <span class="mode-badge" id="modeBadge">智能诊断</span>
+        </div>
         
+        <!-- 统计摘要（仅诊断模式显示） -->
         <div class="result-summary" id="resultSummary">
             <div class="summary-item">
                 <h3 id="totalCount">-</h3>
@@ -447,37 +646,12 @@ MathJax = {
         
         <div id="questionsList"></div>
     </div>
-    
-    <div class="card" id="diagnosisCard" style="display: none;">
-        <h2 class="card-title">
-            <span>🔍</span>
-            分层诊断
-        </h2>
-        <p style="color: #666; margin-bottom: 16px;">
-            请选择最符合孩子情况的选项，帮助我们给出更精准的讲解：
-        </p>
-        <div class="diagnosis-options" id="diagnosisOptions"></div>
-        <button class="btn btn-primary" id="confirmDiagnosis" style="width: 100%; margin-top: 20px;" disabled>
-            确认选择
-        </button>
-    </div>
-    
-    <div class="card" id="explanationCard" style="display: none;">
-        <h2 class="card-title">
-            <span>💡</span>
-            讲解与建议
-        </h2>
-        <div id="explanationContent"></div>
-        <button class="btn btn-success" id="nextBtn" style="width: 100%; margin-top: 20px;">
-            查看学习统计 →
-        </button>
-    </div>
 </div>
 
 <div id="errorState" class="card empty-state" style="display: none;">
     <div class="empty-state-icon">😕</div>
     <h3>加载失败</h3>
-    <p style="color: #666; margin-top: 8px;">无法加载诊断结果，请稍后重试</p>
+    <p style="color: #666; margin-top: 8px;">无法加载分析结果，请稍后重试</p>
     <button class="btn btn-primary" onclick="location.reload()" style="margin-top: 20px;">
         重新加载
     </button>
@@ -486,13 +660,21 @@ MathJax = {
 
 {% block extra_js %}
 const homeworkId = '{{ homework_id }}';
-let selectedQuestionId = null;
-let selectedLevel = null;
+let diagnosisMode = 'diagnosis';
+
+// 模式名称映射
+const MODE_NAMES = {
+    'diagnosis': '智能诊断',
+    'solution': '查看解答',
+    'explain': '知识点讲解',
+    'single': '单题深度分析'
+};
 
 // 加载作业详情
 async function loadHomework() {
     try {
         const data = await apiRequest(`${API_BASE}/homework/${homeworkId}`);
+        diagnosisMode = data.diagnosis_mode || 'diagnosis';
         renderResult(data);
     } catch (error) {
         document.getElementById('loadingState').style.display = 'none';
@@ -505,107 +687,85 @@ function renderResult(data) {
     document.getElementById('loadingState').style.display = 'none';
     document.getElementById('resultContainer').style.display = 'block';
     
-    // 更新统计
+    // 更新模式标签
+    const modeBadge = document.getElementById('modeBadge');
+    modeBadge.className = `mode-badge ${diagnosisMode}`;
+    modeBadge.textContent = MODE_NAMES[diagnosisMode] || '智能诊断';
+    
+    // 更新标题
+    const titles = {
+        'diagnosis': '诊断结果',
+        'solution': '解答详情',
+        'explain': '知识点讲解',
+        'single': '深度分析'
+    };
+    document.getElementById('resultTitle').textContent = titles[diagnosisMode] || '分析结果';
+    
+    // 根据模式渲染不同内容
+    switch(diagnosisMode) {
+        case 'diagnosis':
+            renderDiagnosisMode(data);
+            break;
+        case 'solution':
+            renderSolutionMode(data);
+            break;
+        case 'explain':
+            renderExplainMode(data);
+            break;
+        case 'single':
+            renderSingleMode(data);
+            break;
+        default:
+            renderDiagnosisMode(data);
+    }
+}
+
+// 诊断模式渲染
+function renderDiagnosisMode(data) {
     const summary = data.summary || {};
     document.getElementById('totalCount').textContent = summary.total_count || 0;
     document.getElementById('errorCount').textContent = summary.error_count || 0;
     document.getElementById('accuracyRate').textContent = 
         ((summary.accuracy_rate || 0) * 100).toFixed(0) + '%';
     
-    // 渲染题目列表
     const questionsList = document.getElementById('questionsList');
     const questions = data.questions || [];
-    
-    // 获取诊断结果
     const diagnosisResult = data.diagnosis_result || {};
-    const ocrResult = data.ocr_result || {};
+    const questionsDetail = diagnosisResult.questions_detail || [];
     
     if (questions.length === 0) {
         questionsList.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">📝</div>
                 <h3>暂无题目数据</h3>
-                <p style="color: #666;">诊断仍在进行中，请稍后刷新查看</p>
+                <p style="color: #666;">分析仍在进行中，请稍后刷新查看</p>
             </div>
         `;
-        
-        // 自动刷新
         setTimeout(loadHomework, 5000);
         return;
     }
     
-    questionsList.innerHTML = questions.map((q, index) => {
-        // 构建诊断信息HTML（只要有诊断结果就显示）
-        let diagnosisHTML = '';
-        const hasDiagnosis = diagnosisResult && (diagnosisResult.error_type || diagnosisResult.diagnosis);
-        const hasOCR = ocrResult && (ocrResult.knowledge_points || ocrResult.problem_type);
-        
-        if (hasDiagnosis || hasOCR) {
-            const confidence = diagnosisResult.confidence || 0;
-            const confidenceClass = confidence >= 0.8 ? 'high' : (confidence >= 0.5 ? 'medium' : 'low');
-            const confidenceText = confidence >= 0.8 ? '高置信度' : (confidence >= 0.5 ? '中等置信度' : '低置信度');
-            
-            // 诊断结果标题颜色根据对错调整
-            const titleColor = diagnosisResult.is_correct === false ? '#dc2626' : '#16a34a';
-            const boxBg = diagnosisResult.is_correct === false ? '#fef2f2' : '#f0fdf4';
-            const boxBorder = diagnosisResult.is_correct === false ? '#fecaca' : '#bbf7d0';
-            
-            diagnosisHTML = `
-                <div class="diagnosis-result-box" style="background: ${boxBg}; border-color: ${boxBorder};">
-                    <div class="diagnosis-result-title" style="color: ${titleColor};">
-                        🔍 AI诊断分析
-                        ${confidence > 0 ? `<span class="confidence-badge ${confidenceClass}">${confidenceText} (${(confidence * 100).toFixed(0)}%)</span>` : ''}
-                    </div>
-                    <div class="diagnosis-info-grid">
-                        ${diagnosisResult.error_type ? `
-                        <div class="diagnosis-info-item">
-                            <div class="diagnosis-info-label">错误类型</div>
-                            <div class="diagnosis-info-value">${diagnosisResult.error_type}</div>
-                        </div>
-                        ` : ''}
-                        <div class="diagnosis-info-item">
-                            <div class="diagnosis-info-label">诊断结果</div>
-                            <div class="diagnosis-info-value">${diagnosisResult.is_correct === true ? '✓ 正确' : (diagnosisResult.is_correct === false ? '✗ 错误' : '待确认')}</div>
-                        </div>
-                        ${ocrResult.problem_type ? `
-                        <div class="diagnosis-info-item">
-                            <div class="diagnosis-info-label">题型</div>
-                            <div class="diagnosis-info-value">${ocrResult.problem_type}</div>
-                        </div>
-                        ` : ''}
-                    </div>
-                    ${diagnosisResult.diagnosis ? `
-                        <div class="diagnosis-analysis">
-                            <div class="diagnosis-analysis-title">诊断详情</div>
-                            <div class="diagnosis-analysis-content">
-                                ${typeof diagnosisResult.diagnosis === 'string' ? diagnosisResult.diagnosis : Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${ocrResult.knowledge_points && ocrResult.knowledge_points.length > 0 ? `
-                        <div class="diagnosis-analysis" style="margin-top: 8px;">
-                            <div class="diagnosis-analysis-title">涉及知识点</div>
-                            <div class="diagnosis-analysis-content">
-                                ${Array.isArray(ocrResult.knowledge_points) ? ocrResult.knowledge_points.join('、') : ocrResult.knowledge_points}
-                            </div>
-                        </div>
-                    ` : ''}
-                    ${data.raw_model_response ? `
-                        <div class="raw-response-box">
-                            <div class="raw-response-title">模型原始响应（调试用）</div>
-                            <div class="raw-response-content">${data.raw_model_response}</div>
-                        </div>
-                    ` : ''}
-                </div>
-            `;
-        }
+    // 合并基础题目信息和详细诊断结果
+    const mergedQuestions = questions.map((q, idx) => {
+        const detail = questionsDetail[idx] || {};
+        return { ...q, ...detail };
+    });
+    
+    questionsList.innerHTML = mergedQuestions.map((q, index) => {
+        const isCorrect = q.is_correct;
+        const errorTypeMap = {
+            'calculation_error': '计算错误',
+            'concept_error': '概念错误',
+            'careless': '粗心大意',
+            'none': '无错误'
+        };
         
         return `
-        <div class="question-item ${q.is_correct === false ? 'error' : 'correct'}">
+        <div class="question-item ${isCorrect ? 'correct' : 'error'}">
             <div class="question-header">
                 <span class="question-number">第 ${index + 1} 题</span>
-                <span class="question-status ${q.is_correct === false ? 'error' : 'correct'}">
-                    ${q.is_correct === false ? '❌ 错误' : '✓ 正确'}
+                <span class="question-status ${isCorrect ? 'correct' : 'error'}">
+                    ${isCorrect ? '✓ 正确' : '✗ 错误'}
                 </span>
             </div>
             <div class="question-content">${q.content || '未识别题目内容'}</div>
@@ -619,158 +779,365 @@ function renderResult(data) {
                     <div class="answer-value">${q.correct_answer || '-'}</div>
                 </div>
             </div>
-            ${diagnosisHTML}
-            ${q.is_correct === false ? `
-                <button class="btn btn-secondary" style="width: 100%; margin-top: 12px;" 
-                    onclick="startDiagnosis('${q.question_id}')">
-                    🔍 开始分层诊断
-                </button>
-            ` : ''}
+            
+            <div class="diagnosis-result-box ${isCorrect ? 'correct' : ''}">
+                <div class="diagnosis-result-title ${isCorrect ? 'correct' : ''}">
+                    🔍 AI诊断分析
+                    ${q.confidence ? `<span class="confidence-badge ${q.confidence >= 0.8 ? 'high' : (q.confidence >= 0.5 ? 'medium' : 'low')}">${(q.confidence * 100).toFixed(0)}%置信度</span>` : ''}
+                </div>
+                ${!isCorrect && q.error_type ? `
+                <div class="diagnosis-info-grid">
+                    <div class="diagnosis-info-item">
+                        <div class="diagnosis-info-label">错误类型</div>
+                        <div class="diagnosis-info-value">${errorTypeMap[q.error_type] || q.error_type}</div>
+                    </div>
+                </div>
+                ` : ''}
+                ${q.diagnosis ? `
+                    <div class="diagnosis-analysis">
+                        <div class="diagnosis-analysis-title">诊断详情</div>
+                        <div class="diagnosis-analysis-content">${q.diagnosis}</div>
+                    </div>
+                ` : ''}
+                ${q.knowledge_points && q.knowledge_points.length > 0 ? `
+                    <div class="diagnosis-analysis" style="margin-top: 8px;">
+                        <div class="diagnosis-analysis-title">涉及知识点</div>
+                        <div class="diagnosis-analysis-content">${q.knowledge_points.join('、')}</div>
+                    </div>
+                ` : ''}
+                ${q.suggestion ? `
+                    <div class="diagnosis-analysis" style="margin-top: 8px;">
+                        <div class="diagnosis-analysis-title">学习建议</div>
+                        <div class="diagnosis-analysis-content">${q.suggestion}</div>
+                    </div>
+                ` : ''}
+            </div>
         </div>
     `}).join('');
     
     // 渲染数学公式
+    renderMath();
+}
+
+// 解答模式渲染
+function renderSolutionMode(data) {
+    // 隐藏统计
+    document.getElementById('resultSummary').style.display = 'none';
+    
+    const questionsList = document.getElementById('questionsList');
+    const questions = data.questions || [];
+    const solutionResult = data.solution_result || {};
+    const questionsDetail = solutionResult.questions_detail || [];
+    
+    if (questions.length === 0) {
+        questionsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📝</div>
+                <h3>暂无题目数据</h3>
+                <p style="color: #666;">分析仍在进行中，请稍后刷新查看</p>
+            </div>
+        `;
+        setTimeout(loadHomework, 5000);
+        return;
+    }
+    
+    // 合并数据
+    const mergedQuestions = questions.map((q, idx) => {
+        const detail = questionsDetail[idx] || {};
+        return { ...q, ...detail };
+    });
+    
+    questionsList.innerHTML = mergedQuestions.map((q, index) => {
+        const steps = q.solution_steps || [];
+        const keyPoints = q.key_points || [];
+        const formulas = q.formula_used || [];
+        
+        return `
+        <div class="question-item">
+            <div class="question-header">
+                <span class="question-number">第 ${index + 1} 题</span>
+                <span class="question-status solution">📝 解答</span>
+            </div>
+            <div class="question-content">${q.content || '未识别题目内容'}</div>
+            
+            <div class="solution-box">
+                <div class="solution-title">📖 详细解答</div>
+                ${steps.length > 0 ? steps.map((step, i) => `
+                    <div class="solution-step">
+                        <div class="solution-step-number">步骤 ${i + 1}</div>
+                        <div>${step}</div>
+                    </div>
+                `).join('') : '<p>暂无详细步骤</p>'}
+                
+                ${q.final_answer ? `
+                    <div class="answer-comparison" style="margin-top: 16px;">
+                        <div class="answer-box correct" style="grid-column: 1 / -1;">
+                            <div class="answer-label">最终答案</div>
+                            <div class="answer-value">${q.final_answer}</div>
+                        </div>
+                    </div>
+                ` : ''}
+            </div>
+            
+            ${keyPoints.length > 0 ? `
+                <div class="key-points">
+                    <div class="key-points-title">💡 解题关键点</div>
+                    <ul class="tips-list">
+                        ${keyPoints.map(kp => `<li>${kp}</li>`).join('')}
+                    </ul>
+                </div>
+            ` : ''}
+            
+            ${formulas.length > 0 ? `
+                <div class="diagnosis-analysis" style="margin-top: 12px;">
+                    <div class="diagnosis-analysis-title">📐 使用的公式</div>
+                    <div class="diagnosis-analysis-content">${formulas.join('、')}</div>
+                </div>
+            ` : ''}
+            
+            ${q.difficulty ? `
+                <div class="diagnosis-analysis" style="margin-top: 8px;">
+                    <div class="diagnosis-analysis-title">难度</div>
+                    <div class="diagnosis-analysis-content">${q.difficulty === 'easy' ? '简单' : (q.difficulty === 'hard' ? '困难' : '中等')}</div>
+                </div>
+            ` : ''}
+        </div>
+    `}).join('');
+    
+    renderMath();
+}
+
+// 讲解模式渲染
+function renderExplainMode(data) {
+    document.getElementById('resultSummary').style.display = 'none';
+    
+    const questionsList = document.getElementById('questionsList');
+    const questions = data.questions || [];
+    const explainResult = data.solution_result || {};  // 复用solution_result字段
+    const questionsDetail = explainResult.questions_detail || [];
+    
+    if (questions.length === 0) {
+        questionsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">📚</div>
+                <h3>暂无知识点数据</h3>
+                <p style="color: #666;">分析仍在进行中，请稍后刷新查看</p>
+            </div>
+        `;
+        setTimeout(loadHomework, 5000);
+        return;
+    }
+    
+    // 合并数据
+    const mergedQuestions = questions.map((q, idx) => {
+        const detail = questionsDetail[idx] || {};
+        return { ...q, ...detail };
+    });
+    
+    questionsList.innerHTML = mergedQuestions.map((q, index) => {
+        const knowledgePoints = q.knowledge_points || [];
+        
+        return `
+        <div class="question-item">
+            <div class="question-header">
+                <span class="question-number">第 ${index + 1} 题</span>
+                <span class="question-status explain">📚 知识点</span>
+            </div>
+            <div class="question-content">${q.content || '未识别题目内容'}</div>
+            
+            <div class="knowledge-box">
+                <div class="knowledge-title">📖 涉及的知识点</div>
+                ${knowledgePoints.length > 0 ? knowledgePoints.map((kp, i) => `
+                    <div class="knowledge-item">
+                        <div class="knowledge-name">${i + 1}. ${kp.name || '未命名知识点'}</div>
+                        ${kp.explanation ? `<div class="knowledge-explanation">${kp.explanation}</div>` : ''}
+                        
+                        ${kp.examples && kp.examples.length > 0 ? `
+                            <div class="knowledge-examples">
+                                <div class="knowledge-examples-title">📝 示例</div>
+                                <ul class="tips-list">
+                                    ${kp.examples.map(ex => `<li>${ex}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                        
+                        ${kp.common_mistakes && kp.common_mistakes.length > 0 ? `
+                            <div class="mistakes-box">
+                                <div class="mistakes-title">⚠️ 常见错误</div>
+                                <ul class="tips-list">
+                                    ${kp.common_mistakes.map(m => `<li>${m}</li>`).join('')}
+                                </ul>
+                            </div>
+                        ` : ''}
+                        
+                        ${kp.related_knowledge && kp.related_knowledge.length > 0 ? `
+                            <div class="diagnosis-analysis" style="margin-top: 8px;">
+                                <div class="diagnosis-analysis-title">🔗 相关知识点</div>
+                                <div class="diagnosis-analysis-content">${kp.related_knowledge.join('、')}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `).join('') : '<p>暂无知识点信息</p>'}
+            </div>
+            
+            ${q.learning_suggestion ? `
+                <div class="tips-box" style="margin-top: 12px;">
+                    <div class="tips-title">💡 学习建议</div>
+                    <div>${q.learning_suggestion}</div>
+                </div>
+            ` : ''}
+        </div>
+    `}).join('');
+    
+    renderMath();
+}
+
+// 单题深度分析模式渲染
+function renderSingleMode(data) {
+    document.getElementById('resultSummary').style.display = 'none';
+    
+    const questionsList = document.getElementById('questionsList');
+    const singleAnalysis = data.diagnosis_result || {};  // 单题分析存储在这里
+    
+    if (!singleAnalysis.target_question) {
+        questionsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🎯</div>
+                <h3>暂无分析数据</h3>
+                <p style="color: #666;">分析仍在进行中，请稍后刷新查看</p>
+            </div>
+        `;
+        setTimeout(loadHomework, 5000);
+        return;
+    }
+    
+    const tq = singleAnalysis.target_question || {};
+    const analysis = singleAnalysis.analysis || {};
+    const solution = singleAnalysis.solution || {};
+    const explanation = singleAnalysis.explanation || {};
+    const extension = singleAnalysis.extension || {};
+    
+    questionsList.innerHTML = `
+        <div class="question-item">
+            <div class="question-header">
+                <span class="question-number">🎯 选定题目</span>
+                <span class="question-status single">深度分析</span>
+            </div>
+            <div class="question-content">${tq.content || '未识别题目内容'}</div>
+            
+            ${tq.student_answer ? `
+                <div class="answer-comparison">
+                    <div class="answer-box student">
+                        <div class="answer-label">学生答案</div>
+                        <div class="answer-value">${tq.student_answer}</div>
+                    </div>
+                    <div class="answer-box correct">
+                        <div class="answer-label">正确答案</div>
+                        <div class="answer-value">${tq.correct_answer || '待确认'}</div>
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+        
+        <!-- 题目分析 -->
+        ${analysis.knowledge_points || analysis.difficulty ? `
+            <div class="analysis-section" style="margin-top: 16px;">
+                <div class="analysis-section-title">📊 题目分析</div>
+                ${analysis.difficulty ? `<p><strong>难度：</strong>${analysis.difficulty === 'easy' ? '⭐ 简单' : (analysis.difficulty === 'hard' ? '⭐⭐⭐ 困难' : '⭐⭐ 中等')}</p>` : ''}
+                ${analysis.estimated_time ? `<p><strong>预计用时：</strong>${analysis.estimated_time}</p>` : ''}
+                ${analysis.knowledge_points && analysis.knowledge_points.length > 0 ? `<p><strong>知识点：</strong>${analysis.knowledge_points.join('、')}</p>` : ''}
+            </div>
+        ` : ''}
+        
+        <!-- 详细解答 -->
+        ${solution.steps || solution.key_insight ? `
+            <div class="single-analysis-box">
+                <div class="analysis-title">📝 详细解答</div>
+                ${solution.key_insight ? `<div class="analysis-section"><strong>解题关键：</strong>${solution.key_insight}</div>` : ''}
+                ${solution.steps && solution.steps.length > 0 ? `
+                    <div class="analysis-section">
+                        <div class="analysis-section-title">解题步骤</div>
+                        ${solution.steps.map((step, i) => `
+                            <div class="solution-step" style="margin-bottom: 8px;">
+                                <div class="solution-step-number">步骤 ${i + 1}</div>
+                                <div>${step}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+                ${solution.formula_used && solution.formula_used.length > 0 ? `
+                    <div class="analysis-section">
+                        <div class="analysis-section-title">使用的公式</div>
+                        <div>${solution.formula_used.join('、')}</div>
+                    </div>
+                ` : ''}
+            </div>
+        ` : ''}
+        
+        <!-- 原理解释 -->
+        ${explanation.core_concept || explanation.why_this_works ? `
+            <div class="knowledge-box">
+                <div class="knowledge-title">📚 原理解释</div>
+                ${explanation.core_concept ? `<div class="knowledge-item"><div class="knowledge-name">核心概念</div><div class="knowledge-explanation">${explanation.core_concept}</div></div>` : ''}
+                ${explanation.why_this_works ? `<div class="knowledge-item"><div class="knowledge-name">为什么这样解</div><div class="knowledge-explanation">${explanation.why_this_works}</div></div>` : ''}
+                ${explanation.common_mistakes && explanation.common_mistakes.length > 0 ? `
+                    <div class="mistakes-box">
+                        <div class="mistakes-title">⚠️ 常见错误</div>
+                        <ul class="tips-list">
+                            ${explanation.common_mistakes.map(m => `<li>${m}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${explanation.prevention_tips ? `
+                    <div class="tips-box" style="margin-top: 12px;">
+                        <div class="tips-title">💡 避免错误的方法</div>
+                        <div>${explanation.prevention_tips}</div>
+                    </div>
+                ` : ''}
+            </div>
+        ` : ''}
+        
+        <!-- 拓展延伸 -->
+        ${extension.similar_problems || extension.variation_ideas ? `
+            <div class="extension-box">
+                <div class="extension-title">🚀 拓展延伸</div>
+                ${extension.similar_problems && extension.similar_problems.length > 0 ? `
+                    <div class="analysis-section">
+                        <div class="analysis-section-title">类似题目思路</div>
+                        <ul class="tips-list">
+                            ${extension.similar_problems.map(sp => `<li>${sp}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${extension.variation_ideas && extension.variation_ideas.length > 0 ? `
+                    <div class="analysis-section">
+                        <div class="analysis-section-title">变形方向</div>
+                        <ul class="tips-list">
+                            ${extension.variation_ideas.map(v => `<li>${v}</li>`).join('')}
+                        </ul>
+                    </div>
+                ` : ''}
+                ${extension.next_level ? `
+                    <div class="analysis-section">
+                        <div class="analysis-section-title">进阶挑战</div>
+                        <div>${extension.next_level}</div>
+                    </div>
+                ` : ''}
+            </div>
+        ` : ''}
+    `;
+    
+    renderMath();
+}
+
+// 渲染数学公式
+function renderMath() {
     if (typeof MathJax !== 'undefined') {
-        MathJax.typesetPromise([questionsList]).catch((err) => {
+        MathJax.typesetPromise([document.getElementById('questionsList')]).catch((err) => {
             console.error('MathJax 渲染失败:', err);
         });
     }
-    
-    // 如果有错题，显示第一个的分层诊断
-    const firstError = questions.find(q => q.is_correct === false);
-    if (firstError) {
-        startDiagnosis(firstError.question_id);
-    }
 }
-
-// 开始分层诊断
-async function startDiagnosis(questionId) {
-    selectedQuestionId = questionId;
-    
-    try {
-        const data = await apiRequest(`${API_BASE}/diagnosis/${questionId}/options`);
-        renderDiagnosisOptions(data);
-    } catch (error) {
-        showAlert('加载诊断选项失败', 'error');
-    }
-}
-
-// 渲染诊断选项
-function renderDiagnosisOptions(data) {
-    const card = document.getElementById('diagnosisCard');
-    const container = document.getElementById('diagnosisOptions');
-    
-    card.style.display = 'block';
-    
-    // 按层级分组
-    const levels = {
-        1: { title: '粗心大意', options: [] },
-        2: { title: '概念模糊', options: [] },
-        3: { title: '完全不会', options: [] },
-    };
-    
-    data.options.forEach(opt => {
-        if (levels[opt.level]) {
-            levels[opt.level].options.push(opt);
-        }
-    });
-    
-    container.innerHTML = Object.entries(levels).map(([level, group]) => `
-        <div style="margin-bottom: 16px;">
-            <div style="font-weight: 600; margin-bottom: 8px; color: #667eea;">
-                Step ${level}: ${group.title}
-            </div>
-            ${group.options.map(opt => `
-                <div class="diagnosis-option" data-level="${opt.level}" data-id="${opt.option_id}"
-                    onclick="selectOption('${opt.option_id}', ${opt.level})">
-                    <div class="option-label">${opt.label}</div>
-                    <div class="option-desc">${opt.description}</div>
-                </div>
-            `).join('')}
-        </div>
-    `).join('');
-    
-    // 滚动到诊断卡片
-    card.scrollIntoView({ behavior: 'smooth' });
-}
-
-// 选择选项
-function selectOption(optionId, level) {
-    selectedLevel = level;
-    
-    // 更新UI
-    document.querySelectorAll('.diagnosis-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
-    document.querySelector(`[data-id="${optionId}"]`).classList.add('selected');
-    
-    // 启用确认按钮
-    document.getElementById('confirmDiagnosis').disabled = false;
-}
-
-// 确认诊断选择
-document.getElementById('confirmDiagnosis')?.addEventListener('click', async () => {
-    if (!selectedQuestionId || !selectedLevel) return;
-    
-    const btn = document.getElementById('confirmDiagnosis');
-    showLoading(btn, '提交中...');
-    
-    try {
-        const data = await apiRequest(`${API_BASE}/diagnosis/${selectedQuestionId}`, {
-            method: 'POST',
-            body: JSON.stringify({ level: selectedLevel }),
-        });
-        
-        // 显示诊断结果和讲解
-        showExplanation(data);
-    } catch (error) {
-        hideLoading(btn);
-        showAlert('提交失败，请重试', 'error');
-    }
-});
-
-// 显示讲解
-function showExplanation(data) {
-    document.getElementById('explanationCard').style.display = 'block';
-    
-    const container = document.getElementById('explanationContent');
-    container.innerHTML = `
-        <div class="explanation-box">
-            <div class="explanation-title">📚 诊断结果</div>
-            <p style="margin-bottom: 12px;">
-                <strong>问题类型：</strong>${data.result.knowledge_gap}
-            </p>
-            <p>${data.result.recommendation}</p>
-        </div>
-        
-        <div class="explanation-box">
-            <div class="explanation-title">📝 解题步骤</div>
-            <ol class="explanation-steps">
-                <li>仔细读题，理解题意</li>
-                <li>找出题目中的关键数字</li>
-                <li>确定正确的运算方法</li>
-                <li>列式计算并验算</li>
-            </ol>
-        </div>
-        
-        <div class="tips-box">
-            <div class="tips-title">💡 学习建议</div>
-            <ul class="tips-list">
-                <li>每天练习5道类似题目</li>
-                <li>建立错题本，定期复习</li>
-                <li>做完后务必验算</li>
-            </ul>
-        </div>
-    `;
-    
-    // 滚动到讲解卡片
-    document.getElementById('explanationCard').scrollIntoView({ behavior: 'smooth' });
-}
-
-// 下一步按钮
-document.getElementById('nextBtn')?.addEventListener('click', () => {
-    window.location.href = '/web/statistics';
-});
 
 // 加载数据
 loadHomework();

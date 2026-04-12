@@ -35,6 +35,7 @@ from src.presentation.api.schemas import (
     PaginatedResponse,
     QuestionInfo,
     SubjectType,
+    DiagnosisMode,
 )
 from src.domain.models.base import generate_id
 
@@ -119,14 +120,170 @@ def _validate_image(file: UploadFile) -> None:
         )
 
 
+# ========== 多模式提示词定义 ==========
 
-async def _process_diagnosis(homework_id: str, image_path: str, student_id: str, parent_description: Optional[str] = None) -> None:
-    """简化版诊断流程: 本地预处理 -> Kimi直接诊断.
+MODE_PROMPTS = {
+    DiagnosisMode.DIAGNOSIS: {
+        "name": "智能诊断",
+        "system_prompt": """你是一位专业的数学作业诊断助手。请仔细分析学生上传的作业图片，完成以下任务：
+
+1. **识别所有题目**：图片中可能有多个题目，请识别每一道题
+2. **识别学生答案**：找到每道题学生写的答案（如果有）
+3. **判断对错**：分析每道题的答案是否正确
+4. **错误诊断**：如果错了，分析错误原因（计算错误/概念错误/粗心等）
+5. **给出建议**：提供针对性的学习建议
+
+请严格按照以下JSON格式返回结果：
+{
+    "questions": [
+        {
+            "question_id": 1,
+            "content": "题目内容",
+            "student_answer": "学生答案",
+            "correct_answer": "正确答案",
+            "is_correct": true/false,
+            "error_type": "calculation_error/concept_error/careless/none",
+            "diagnosis": "详细的诊断分析",
+            "knowledge_points": ["知识点1", "知识点2"],
+            "suggestion": "学习建议"
+        }
+    ],
+    "summary": {
+        "total_count": 3,
+        "correct_count": 2,
+        "error_count": 1,
+        "overall_suggestion": "总体学习建议"
+    },
+    "confidence": 0.95
+}""",
+        "user_template": "请诊断这张作业图片中的所有题目"
+    },
+    
+    DiagnosisMode.SOLUTION: {
+        "name": "查看解答",
+        "system_prompt": """你是一位数学解题助手。请分析图片中的题目，给出详细的解题步骤。
+
+1. **识别所有题目**：图片中可能有多个题目，请识别每一道题
+2. **给出完整解答**：为每道题提供详细的解题步骤
+3. **关键思路**：说明解题的关键思路和方法
+
+请严格按照以下JSON格式返回结果：
+{
+    "questions": [
+        {
+            "question_id": 1,
+            "content": "题目内容",
+            "solution_steps": ["步骤1：...", "步骤2：...", "步骤3：..."],
+            "final_answer": "最终答案",
+            "key_points": ["解题关键点1", "关键点2"],
+            "formula_used": ["使用的公式1", "公式2"],
+            "difficulty": "easy/medium/hard"
+        }
+    ],
+    "summary": {
+        "total_count": 3,
+        "difficulty_distribution": {"easy": 1, "medium": 1, "hard": 1}
+    },
+    "confidence": 0.95
+}""",
+        "user_template": "请给出这张图片中所有题目的详细解答"
+    },
+    
+    DiagnosisMode.EXPLAIN: {
+        "name": "知识点讲解",
+        "system_prompt": """你是一位数学知识讲解助手。请针对图片中题目涉及的知识点进行详细讲解。
+
+1. **识别所有题目**：图片中可能有多个题目
+2. **提取知识点**：分析每道题涉及的核心知识点
+3. **详细讲解**：对每个知识点进行深入浅出的讲解
+
+请严格按照以下JSON格式返回结果：
+{
+    "questions": [
+        {
+            "question_id": 1,
+            "content": "题目内容",
+            "knowledge_points": [
+                {
+                    "name": "知识点名称",
+                    "explanation": "详细讲解，包含定义、原理、应用场景",
+                    "examples": ["简单例子1", "例子2"],
+                    "common_mistakes": ["常见错误1", "错误2"],
+                    "related_knowledge": ["相关知识点1", "知识点2"]
+                }
+            ],
+            "learning_suggestion": "针对此题的学习建议"
+        }
+    ],
+    "summary": {
+        "knowledge_summary": "涉及的知识点概览",
+        "learning_path": ["建议学习路径1", "路径2"]
+    },
+    "confidence": 0.95
+}""",
+        "user_template": "请讲解这张图片中题目涉及的知识点"
+    },
+    
+    DiagnosisMode.SINGLE: {
+        "name": "单题深度分析",
+        "system_prompt": """你是一位专业的数学辅导老师。用户指定了图片中的某一道题，请针对该题进行深度分析。
+
+1. **识别指定题目**：只分析用户框选的题目
+2. **完整解析**：题目分析、解题步骤、知识点讲解、易错点提醒
+3. **拓展延伸**：提供类似题目或变形题思路
+
+请严格按照以下JSON格式返回结果：
+{
+    "target_question": {
+        "question_id": 1,
+        "content": "题目内容",
+        "student_answer": "学生答案（如果有）",
+        "correct_answer": "正确答案"
+    },
+    "analysis": {
+        "difficulty": "easy/medium/hard",
+        "estimated_time": "预计解题时间",
+        "knowledge_points": ["知识点1", "知识点2"]
+    },
+    "solution": {
+        "steps": ["详细步骤1", "步骤2", "步骤3"],
+        "key_insight": "解题关键思路",
+        "formula_used": ["公式1", "公式2"]
+    },
+    "explanation": {
+        "core_concept": "核心概念讲解",
+        "why_this_works": "为什么这样解",
+        "common_mistakes": ["常见错误1", "错误2"],
+        "prevention_tips": "避免错误的方法"
+    },
+    "extension": {
+        "similar_problems": ["类似题目思路1", "思路2"],
+        "variation_ideas": ["变形方向1", "方向2"],
+        "next_level": "进阶挑战"
+    },
+    "confidence": 0.95
+}""",
+        "user_template": "请深度分析图片中我框选的这道题目"
+    }
+}
+
+
+async def _process_diagnosis(
+    homework_id: str, 
+    image_path: str, 
+    student_id: str, 
+    mode: DiagnosisMode = DiagnosisMode.DIAGNOSIS,
+    selected_regions: Optional[List[dict]] = None,
+    parent_description: Optional[str] = None
+) -> None:
+    """多模式诊断流程: 本地预处理 -> Kimi直接诊断.
     
     Args:
         homework_id: 作业ID
         image_path: 图片路径
         student_id: 学生ID
+        mode: 诊断模式
+        selected_regions: 用户框选的题目区域（单题模式用）
         parent_description: 家长描述
     """
     import time
@@ -136,8 +293,8 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
     start_time = time.time()
     
     try:
-        logger.info("diagnosis_start", homework_id=homework_id, student_id=student_id)
-        _update_progress(homework_id, "init", 5, "正在初始化...")
+        logger.info("diagnosis_start", homework_id=homework_id, student_id=student_id, mode=mode.value)
+        _update_progress(homework_id, "init", 5, f"正在初始化[{MODE_PROMPTS[mode]['name']}]...")
         
         # 创建模型客户端
         try:
@@ -182,35 +339,23 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
             with open(image_path, "rb") as f:
                 image_base64 = base64.b64encode(f.read()).decode("utf-8")
         
-        # 步骤2: Kimi直接诊断（一次API调用完成识别+诊断）
-        logger.info("kimi_diagnosis_start", homework_id=homework_id)
+        # 步骤2: Kimi直接诊断（根据模式选择不同提示词）
+        logger.info("kimi_diagnosis_start", homework_id=homework_id, mode=mode.value)
         _update_progress(homework_id, "diagnosis", 40, "Kimi正在分析...")
         
-        # 构建端到端诊断Prompt
-        system_prompt = """你是一位专业的数学作业诊断助手。请仔细分析学生上传的作业图片，完成以下任务：
-
-1. **识别题目内容**：提取图片中的题目文本
-2. **识别学生答案**：找到学生写的答案（如果有）
-3. **判断对错**：分析学生的答案是否正确
-4. **错误诊断**：如果错了，分析错误原因（计算错误/概念错误/粗心等）
-5. **给出建议**：提供针对性的学习建议
-
-请严格按照以下JSON格式返回结果：
-{
-    "content": "识别的题目内容",
-    "student_answer": "学生答案",
-    "correct_answer": "正确答案",
-    "is_correct": true/false,
-    "error_type": "错误类型：calculation_error(计算错误)/concept_error(概念错误)/careless(粗心)/none(无错误)",
-    "diagnosis": "详细的诊断分析",
-    "knowledge_points": ["涉及的知识点1", "知识点2"],
-    "suggestion": "给学生的学习建议",
-    "confidence": 0.95
-}"""
-
-        user_content = "请分析这张作业图片"
+        # 获取模式配置
+        mode_config = MODE_PROMPTS[mode]
+        system_prompt = mode_config["system_prompt"]
+        user_content = mode_config["user_template"]
+        
+        # 添加用户补充描述
         if parent_description:
-            user_content += f"\n\n家长描述：{parent_description}"
+            user_content += f"\n\n用户补充说明：{parent_description}"
+        
+        # 单题模式：添加框选区域信息
+        if mode == DiagnosisMode.SINGLE and selected_regions:
+            user_content += f"\n\n用户框选区域：{json.dumps(selected_regions, ensure_ascii=False)}"
+            user_content += "\n请只分析框选区域内的题目，忽略其他区域。"
         
         _update_progress(homework_id, "analyzing", 70, "AI正在深度分析...")
         
@@ -228,8 +373,8 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
             messages=messages,
             images=[image_base64],
             model=vision_model,
-            temperature=1.0,  # kimi-k2.5要求
-            max_tokens=2048,
+            temperature=1.0,
+            max_tokens=4096 if mode == DiagnosisMode.SINGLE else 2048,
         )
         
         _update_progress(homework_id, "parsing", 90, "正在解析结果...")
@@ -269,7 +414,6 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
         # 尝试4: 清理转义字符后解析
         if result is None:
             try:
-                # 替换常见的转义问题
                 cleaned = raw_response.replace('\\n', '\n').replace('\\t', '\t')
                 result = json.loads(cleaned)
             except json.JSONDecodeError:
@@ -280,7 +424,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
             raise ValueError(f"无法解析模型返回的JSON: {parse_error}")
         
         elapsed_time = time.time() - start_time
-        logger.info("diagnosis_complete", homework_id=homework_id, elapsed=elapsed_time)
+        logger.info("diagnosis_complete", homework_id=homework_id, elapsed=elapsed_time, mode=mode.value)
         
         # 更新进度：完成
         _update_progress(homework_id, "complete", 100, "诊断完成！")
@@ -289,37 +433,86 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.COMPLETED.value
             _homework_store[homework_id]["completed_at"] = int(datetime.utcnow().timestamp())
-            _homework_store[homework_id]["ocr_result"] = {
-                "content": result.get("content", ""),
-                "student_answer": result.get("student_answer"),
-                "subject": "math",
-                "problem_type": "unknown",
-                "knowledge_points": result.get("knowledge_points", []),
-                "confidence": result.get("confidence", 0.8),
-            }
-            _homework_store[homework_id]["diagnosis_result"] = {
-                "is_correct": result.get("is_correct", True),
-                "error_type": result.get("error_type") if not result.get("is_correct") else None,
-                "confidence": result.get("confidence", 0.8),
-                "diagnosis": result.get("diagnosis", ""),
-            }
-            _homework_store[homework_id]["questions"] = [
-                {
-                    "question_id": generate_id("q"),
-                    "type": "unknown",
-                    "content": result.get("content", "")[:200],
-                    "student_answer": result.get("student_answer", "未识别"),
-                    "correct_answer": result.get("correct_answer", "待确认"),
-                    "is_correct": result.get("is_correct", True),
-                    "knowledge_point": result.get("knowledge_points", ["未知"])[0] if result.get("knowledge_points") else "未知",
-                    "difficulty": "unknown",
-                },
-            ]
-            _homework_store[homework_id]["error_count"] = 0 if result.get("is_correct", True) else 1
-            _homework_store[homework_id]["total_count"] = 1
+            _homework_store[homework_id]["diagnosis_mode"] = mode.value
+            
+            # 根据模式存储不同的结果格式
+            if mode == DiagnosisMode.SINGLE:
+                # 单题模式：直接存储深度分析结果
+                _homework_store[homework_id]["single_analysis"] = result
+                _homework_store[homework_id]["ocr_result"] = {
+                    "content": result.get("target_question", {}).get("content", ""),
+                    "student_answer": result.get("target_question", {}).get("student_answer"),
+                    "subject": "math",
+                    "knowledge_points": result.get("analysis", {}).get("knowledge_points", []),
+                    "confidence": result.get("confidence", 0.8),
+                }
+                _homework_store[homework_id]["questions"] = [
+                    {
+                        "question_id": generate_id("q"),
+                        "type": "unknown",
+                        "content": result.get("target_question", {}).get("content", "")[:200],
+                        "student_answer": result.get("target_question", {}).get("student_answer", "未识别"),
+                        "correct_answer": result.get("target_question", {}).get("correct_answer", "待确认"),
+                        "is_correct": None,  # 单题模式不提供对错判断
+                        "knowledge_point": result.get("analysis", {}).get("knowledge_points", ["未知"])[0] if result.get("analysis", {}).get("knowledge_points") else "未知",
+                        "difficulty": result.get("analysis", {}).get("difficulty", "unknown"),
+                    }
+                ]
+                _homework_store[homework_id]["error_count"] = 0
+                _homework_store[homework_id]["total_count"] = 1
+            else:
+                # 多题模式：提取questions列表
+                questions_data = result.get("questions", [])
+                summary = result.get("summary", {})
+                
+                _homework_store[homework_id]["ocr_result"] = {
+                    "content": f"共识别 {len(questions_data)} 道题目",
+                    "subject": "math",
+                    "knowledge_points": [],
+                    "confidence": result.get("confidence", 0.8),
+                }
+                
+                # 转换题目列表
+                _homework_store[homework_id]["questions"] = [
+                    {
+                        "question_id": generate_id("q"),
+                        "type": "unknown",
+                        "content": q.get("content", "")[:200],
+                        "student_answer": q.get("student_answer", "未识别") if mode == DiagnosisMode.DIAGNOSIS else q.get("final_answer", "见解答"),
+                        "correct_answer": q.get("correct_answer", "待确认") if mode == DiagnosisMode.DIAGNOSIS else q.get("final_answer", "见解答"),
+                        "is_correct": q.get("is_correct", True) if mode == DiagnosisMode.DIAGNOSIS else None,
+                        "knowledge_point": q.get("knowledge_points", ["未知"])[0] if q.get("knowledge_points") else "未知",
+                        "difficulty": q.get("difficulty", "unknown"),
+                    }
+                    for q in questions_data
+                ]
+                
+                # 诊断模式特有的统计
+                if mode == DiagnosisMode.DIAGNOSIS:
+                    _homework_store[homework_id]["diagnosis_result"] = {
+                        "mode": mode.value,
+                        "summary": summary,
+                        "questions_detail": questions_data,
+                    }
+                    _homework_store[homework_id]["error_count"] = summary.get("error_count", 0)
+                    _homework_store[homework_id]["total_count"] = summary.get("total_count", len(questions_data))
+                else:
+                    # 解答模式/讲解模式
+                    _homework_store[homework_id]["solution_result"] = {
+                        "mode": mode.value,
+                        "summary": summary,
+                        "questions_detail": questions_data,
+                    } if mode == DiagnosisMode.SOLUTION else {
+                        "mode": mode.value,
+                        "summary": result.get("summary", {}),
+                        "questions_detail": questions_data,
+                    }
+                    _homework_store[homework_id]["total_count"] = len(questions_data)
+                    _homework_store[homework_id]["error_count"] = 0
+            
             _homework_store[homework_id]["raw_model_response"] = raw_response
         
-        logger.info("diagnosis_task_complete", homework_id=homework_id, elapsed_time=elapsed_time)
+        logger.info("diagnosis_task_complete", homework_id=homework_id, elapsed_time=elapsed_time, mode=mode.value)
         
     except Exception as e:
         elapsed_time = time.time() - start_time
@@ -341,6 +534,8 @@ async def upload_homework(
     student_id: str = Form(..., description="学生ID"),
     subject: SubjectType = Form(..., description="学科"),
     description: Optional[str] = Form(None, max_length=140, description="家长描述"),
+    mode: DiagnosisMode = Form(DiagnosisMode.DIAGNOSIS, description="诊断模式: diagnosis/solution/explain/single"),
+    selected_regions: Optional[str] = Form(None, description="框选区域JSON（单题模式用）"),
     image: UploadFile = File(..., description="作业照片"),
 ) -> BaseResponse:
     """上传作业.
@@ -352,21 +547,35 @@ async def upload_homework(
         student_id: 学生ID
         subject: 学科
         description: 家长描述（可选，最多140字）
+        mode: 诊断模式（可选，默认diagnosis）
+        selected_regions: 用户框选的题目区域JSON（单题模式用）
         image: 作业照片（支持jpg/png/webp，最大10MB）
         
     Returns:
         包含作业ID的响应
     """
+    import json
+    
     logger.info(
         "upload_homework",
         student_id=student_id,
         subject=subject.value,
+        mode=mode.value,
         has_description=bool(description),
+        has_regions=bool(selected_regions),
         filename=image.filename,
     )
     
     # 验证图片
     _validate_image(image)
+    
+    # 解析框选区域
+    regions = None
+    if selected_regions:
+        try:
+            regions = json.loads(selected_regions)
+        except json.JSONDecodeError:
+            raise ValidationException(message="框选区域格式错误")
     
     # 生成作业ID
     homework_id = generate_id("hw")
@@ -384,6 +593,7 @@ async def upload_homework(
         "status": HomeworkStatus.PROCESSING.value,
         "image_url": f"/uploads/homework/{os.path.basename(image_path)}",
         "parent_description": description,
+        "diagnosis_mode": mode.value,
         "created_at": now,
         "completed_at": None,
         "error_count": 0,
@@ -392,12 +602,13 @@ async def upload_homework(
     }
     
     # 启动后台诊断任务
-    background_tasks.add_task(_process_diagnosis, homework_id, image_path, student_id, description)
+    background_tasks.add_task(_process_diagnosis, homework_id, image_path, student_id, mode, regions, description)
     
     logger.info(
         "homework_created",
         homework_id=homework_id,
         student_id=student_id,
+        mode=mode.value,
     )
     
     return BaseResponse(
@@ -544,15 +755,19 @@ async def get_homework(homework_id: str) -> BaseResponse:
         completed_at=hw.get("completed_at"),
         questions=questions,
         summary=summary,
-        diagnosis_result=hw.get("diagnosis_result"),
+        diagnosis_result=hw.get("diagnosis_result") or hw.get("solution_result") or hw.get("single_analysis"),
         ocr_result=hw.get("ocr_result"),
         raw_model_response=hw.get("raw_model_response"),
     )
     
+    # 添加诊断模式信息
+    result_data = detail.model_dump()
+    result_data["diagnosis_mode"] = hw.get("diagnosis_mode", "diagnosis")
+    
     return BaseResponse(
         code=0,
         message="success",
-        data=detail.model_dump()
+        data=result_data
     )
 
 

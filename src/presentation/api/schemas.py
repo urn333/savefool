@@ -84,6 +84,14 @@ class HomeworkStatus(str, Enum):
     FAILED = "failed"
 
 
+class DiagnosisMode(str, Enum):
+    """诊断模式."""
+    DIAGNOSIS = "diagnosis"      # 智能诊断（默认）
+    SOLUTION = "solution"        # 查看解答
+    EXPLAIN = "explain"          # 知识点讲解
+    SINGLE = "single"            # 单题深度分析
+
+
 class HomeworkUploadRequest(BaseModel):
     """作业上传请求.
     
