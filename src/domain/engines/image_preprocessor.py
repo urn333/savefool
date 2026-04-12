@@ -559,12 +559,14 @@ class ImagePreprocessor:
         self,
         image: np.ndarray,
         options: Optional[PreprocessOptions] = None,
+        max_size_mb: float = 1.5,
     ) -> str:
-        """转换为base64编码.
+        """转换为base64编码，自动压缩到指定大小以下.
         
         Args:
             image: OpenCV格式的图像
             options: 编码选项
+            max_size_mb: 最大文件大小（MB），超过则自动压缩
             
         Returns:
             base64编码的图像数据
@@ -572,12 +574,64 @@ class ImagePreprocessor:
         import base64
         
         opts = options or self.options
+        max_size_bytes = int(max_size_mb * 1024 * 1024)
         
+        # 首先尝试原始质量编码
         if opts.output_format.lower() == "jpeg":
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, opts.jpeg_quality]
             _, buffer = cv2.imencode(".jpg", image, encode_params)
         else:
             _, buffer = cv2.imencode(".png", image)
+        
+        # 如果超过大小限制，进行压缩
+        original_size = len(buffer)
+        if original_size > max_size_bytes:
+            self.logger.info(
+                "image_compression_start",
+                original_size_kb=original_size // 1024,
+                target_size_kb=max_size_bytes // 1024,
+            )
+            
+            # 策略1: 降低JPEG质量
+            if opts.output_format.lower() == "jpeg":
+                for quality in [85, 75, 65, 55, 45, 35]:
+                    encode_params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+                    _, buffer = cv2.imencode(".jpg", image, encode_params)
+                    if len(buffer) <= max_size_bytes:
+                        self.logger.info(
+                            "image_compressed",
+                            method=f"jpeg_quality_{quality}",
+                            final_size_kb=len(buffer) // 1024,
+                        )
+                        break
+            
+            # 策略2: 如果质量降低还不够，缩小尺寸（保持比例）
+            if len(buffer) > max_size_bytes:
+                h, w = image.shape[:2]
+                scale = 0.9  # 每次缩小10%
+                
+                while len(buffer) > max_size_bytes and scale > 0.3:
+                    new_w = int(w * scale)
+                    new_h = int(h * scale)
+                    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+                    
+                    if opts.output_format.lower() == "jpeg":
+                        encode_params = [cv2.IMWRITE_JPEG_QUALITY, 75]
+                        _, buffer = cv2.imencode(".jpg", resized, encode_params)
+                    else:
+                        _, buffer = cv2.imencode(".png", resized)
+                    
+                    if len(buffer) <= max_size_bytes:
+                        self.logger.info(
+                            "image_compressed",
+                            method=f"resize_scale_{scale:.2f}",
+                            original_size=(w, h),
+                            new_size=(new_w, new_h),
+                            final_size_kb=len(buffer) // 1024,
+                        )
+                        break
+                    
+                    scale -= 0.1
         
         return base64.b64encode(buffer).decode("utf-8")
 
