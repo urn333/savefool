@@ -246,6 +246,36 @@ class DeepSeekConfig(BaseSettings):
     )
 
 
+class BaiduOCRConfig(BaseSettings):
+    """百度OCR API配置.
+    
+    免费额度：个人用户每月几万次调用
+    申请地址：https://cloud.baidu.com/product/ocr
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="BAIDU_OCR_",
+        extra="ignore",
+    )
+
+    api_key: Optional[str] = Field(
+        default=None,
+        description="百度OCR API Key",
+    )
+    secret_key: Optional[str] = Field(
+        default=None,
+        description="百度OCR Secret Key",
+    )
+    timeout: float = Field(
+        default=30.0,
+        description="请求超时时间(秒)",
+    )
+    enabled: bool = Field(
+        default=False,
+        description="是否启用百度OCR",
+    )
+
+
 class OllamaConfig(BaseSettings):
     """Ollama本地/局域网服务配置."""
 
@@ -500,6 +530,7 @@ class Settings(BaseSettings):
     openai: OpenAIConfig = Field(default_factory=OpenAIConfig)
     kimi: KimiConfig = Field(default_factory=KimiConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
+    baidu_ocr: BaiduOCRConfig = Field(default_factory=BaiduOCRConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
     llama: LlamaConfig = Field(default_factory=LlamaConfig)

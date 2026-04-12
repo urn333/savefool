@@ -156,3 +156,78 @@ def get_active_model() -> str:
         return settings.kimi.model
     else:
         return settings.openai.model
+
+
+def create_ocr_client(provider: Optional[str] = None):
+    """创建OCR客户端.
+    
+    用于图片文字识别，支持百度OCR等免费服务。
+    
+    Args:
+        provider: OCR提供商 (baidu_ocr|ollama)，默认从配置读取
+        
+    Returns:
+        OCR客户端实例
+        
+    Example:
+        >>> # 使用百度OCR（推荐，中文识别效果好）
+        >>> client = create_ocr_client("baidu_ocr")
+        >>> 
+        >>> # 使用Ollama本地模型
+        >>> client = create_ocr_client("ollama")
+    """
+    from src.infrastructure.config import BaiduOCRConfig
+    from src.infrastructure.models.baidu_ocr_client import BaiduOCRClient
+    
+    settings = get_settings()
+    
+    # 确定使用哪个提供商
+    if provider is None:
+        # 优先使用百度OCR（如果配置）
+        baidu_config: BaiduOCRConfig = settings.baidu_ocr
+        if baidu_config.enabled and baidu_config.api_key and baidu_config.secret_key:
+            provider = "baidu_ocr"
+        else:
+            provider = "ollama"
+    
+    provider = provider.lower()
+    
+    if provider == 'baidu_ocr':
+        # 使用百度OCR
+        baidu_config: BaiduOCRConfig = settings.baidu_ocr
+        api_key = baidu_config.api_key
+        secret_key = baidu_config.secret_key
+        
+        if not api_key or not secret_key:
+            raise ValueError(
+                "百度OCR API Key 或 Secret Key 未配置。"
+                "请在 .env 文件中设置 baidu_ocr_api_key 和 baidu_ocr_secret_key，"
+                "或从 https://cloud.baidu.com/product/ocr 申请。"
+            )
+        
+        logger.info("creating_baidu_ocr_client")
+        
+        return BaiduOCRClient(
+            api_key=api_key,
+            secret_key=secret_key,
+            timeout=baidu_config.timeout,
+        )
+    
+    elif provider == 'ollama':
+        # 使用Ollama本地模型
+        ollama_config = settings.ollama
+        
+        logger.info(
+            "creating_ollama_ocr_client",
+            model=ollama_config.model,
+            api_base=ollama_config.api_base,
+        )
+        
+        return OllamaClient(
+            api_base=ollama_config.api_base,
+            model=ollama_config.model,
+            timeout=ollama_config.timeout,
+        )
+    
+    else:
+        raise ValueError(f"不支持的OCR提供商: {provider}，请使用 'baidu_ocr' 或 'ollama'")
