@@ -1,6 +1,7 @@
-"""OpenAI客户端实现.
+"""Kimi/Moonshot API客户端.
 
-支持GPT-4、GPT-4o等OpenAI模型，包含重试机制和流式输出。
+支持Kimi模型的异步调用，包含重试机制和流式输出。
+使用OpenAI兼容模式访问Moonshot API。
 """
 
 import base64
@@ -41,16 +42,18 @@ class OpenAIClient(ModelClient):
     """
 
     VISION_MODELS = {
-        # OpenAI 视觉模型
-        "gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini",
+        # Moonshot 视觉模型
+        "moonshot-v1-8k-vision-preview",
+        "moonshot-v1-32k-vision-preview", 
+        "moonshot-v1-128k-vision-preview",
         # Kimi 视觉模型
-        "kimi-k2.5", "kimi-k2-thinking",
+        "kimi-k2.5",
     }
 
     def __init__(
         self,
         api_key: str,
-        model: str = "gpt-4",
+        model: str = "moonshot-v1-8k",
         api_base: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 2048,
@@ -58,17 +61,17 @@ class OpenAIClient(ModelClient):
         max_retries: int = 3,
         organization: Optional[str] = None,
     ):
-        """初始化OpenAI客户端.
+        """初始化Kimi客户端.
 
         Args:
-            api_key: OpenAI API密钥
+            api_key: Kimi API密钥
             model: 默认模型名称
-            api_base: 自定义API基础URL
+            api_base: Kimi API基础URL (默认 https://api.moonshot.cn/v1)
             temperature: 生成温度
             max_tokens: 最大token数
             timeout: 请求超时时间
             max_retries: 最大重试次数
-            organization: OpenAI组织ID
+            organization: 组织ID (可选)
         """
         super().__init__(
             model=model,
@@ -97,7 +100,7 @@ class OpenAIClient(ModelClient):
     @property
     def provider(self) -> str:
         """模型提供商名称."""
-        return "openai"
+        return "kimi"
 
     def _map_exception(self, exc: Exception, attempt: int) -> ModelClientError:
         """将OpenAI异常映射为内部异常.
@@ -379,7 +382,7 @@ class OpenAIClient(ModelClient):
         # 使用视觉模型
         effective_model = model or self.model
         if effective_model not in self.VISION_MODELS:
-            effective_model = "gpt-4o"
+            effective_model = "moonshot-v1-8k-vision-preview"
 
         # 准备图片内容
         image_contents = []
