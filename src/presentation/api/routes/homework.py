@@ -120,6 +120,80 @@ def _validate_image(file: UploadFile) -> None:
         )
 
 
+def _extract_fallback_result(raw_response: str, mode: DiagnosisMode) -> dict:
+    """当JSON解析失败时，从文本中提取关键信息构造fallback结果.
+    
+    Args:
+        raw_response: 模型原始响应
+        mode: 诊断模式
+        
+    Returns:
+        构造的结果字典
+    """
+    import re
+    
+    if mode == DiagnosisMode.EXPLAIN:
+        # 提取知识点名称
+        knowledge_points = []
+        # 匹配 "知识点名称" 或 "name": "xxx"
+        name_patterns = [
+            r'["\']name["\']\s*:\s*["\']([^"\']+)["\']',
+            r'知识点["\']?\s*[:：]\s*["\']?([^"\'\n]+)',
+        ]
+        for pattern in name_patterns:
+            matches = re.findall(pattern, raw_response)
+            for match in matches[:3]:  # 最多3个知识点
+                if match.strip() and len(match.strip()) > 1:
+                    knowledge_points.append({
+                        "name": match.strip(),
+                        "explanation": "（AI返回格式异常，仅提取到知识点名称）",
+                        "examples": [],
+                        "common_mistakes": []
+                    })
+        
+        # 如果没有提取到，使用默认
+        if not knowledge_points:
+            knowledge_points = [{"name": "知识点提取失败", "explanation": "AI返回格式异常，请重试", "examples": [], "common_mistakes": []}]
+        
+        return {
+            "questions": [{
+                "question_id": 1,
+                "content": "题目内容提取失败",
+                "knowledge_points": knowledge_points,
+                "learning_suggestion": "请尝试重新上传或选择其他模式"
+            }],
+            "summary": {"knowledge_summary": "部分内容提取失败", "learning_path": []},
+            "confidence": 0.5
+        }
+    
+    elif mode == DiagnosisMode.SOLUTION:
+        # 提取解题步骤
+        steps = []
+        step_pattern = r'(?:步骤|Step)\s*\d+[\.:\s]+([^\n]+)'
+        matches = re.findall(step_pattern, raw_response, re.IGNORECASE)
+        for match in matches[:5]:
+            if match.strip():
+                steps.append(match.strip())
+        
+        if not steps:
+            steps = ["解题步骤提取失败，请查看原始响应"]
+        
+        return {
+            "questions": [{
+                "question_id": 1,
+                "content": "题目内容提取失败",
+                "solution_steps": steps,
+                "final_answer": "提取失败",
+                "key_points": [],
+                "formula_used": []
+            }],
+            "summary": {"total_count": 1, "difficulty_distribution": {"unknown": 1}},
+            "confidence": 0.5
+        }
+    
+    return {"questions": [], "confidence": 0.5}
+
+
 # ========== 多模式提示词定义 ==========
 
 MODE_PROMPTS = {
@@ -193,11 +267,13 @@ MODE_PROMPTS = {
         "name": "知识点讲解",
         "system_prompt": """你是一位数学知识讲解助手。请针对图片中题目涉及的知识点进行详细讲解。
 
-1. **识别所有题目**：图片中可能有多个题目
-2. **提取知识点**：分析每道题涉及的核心知识点
-3. **详细讲解**：对每个知识点进行深入浅出的讲解
+【重要】你必须严格按以下JSON格式返回，确保JSON格式合法：
+- 所有字符串使用双引号"
+- 数组和对象不要有尾随逗号
+- 不要包含任何注释
+- 不要输出markdown代码块标记
 
-请严格按照以下JSON格式返回结果：
+JSON格式：
 {
     "questions": [
         {
@@ -220,7 +296,9 @@ MODE_PROMPTS = {
         "learning_path": ["建议学习路径1", "路径2"]
     },
     "confidence": 0.95
-}""",
+}
+
+请识别图片中的所有题目，为每道题提取知识点并详细讲解。""",
         "user_template": "请讲解这张图片中题目涉及的知识点"
     },
     
@@ -419,9 +497,46 @@ async def _process_diagnosis(
             except json.JSONDecodeError:
                 pass
         
+        # 尝试5: 修复常见JSON语法错误（单引号、尾随逗号等）
         if result is None:
-            logger.error("json_parse_failed", error=parse_error, response_preview=raw_response[:200])
-            raise ValueError(f"无法解析模型返回的JSON: {parse_error}")
+            try:
+                import re
+                # 修复单引号（但避免修复英文缩写中的撇号）
+                cleaned = raw_response
+                # 将对象/数组中的单引号替换为双引号
+                cleaned = re.sub(r"(?<!\\)'", '"', cleaned)
+                # 修复尾随逗号（在}或]前的逗号）
+                cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
+                # 修复缺少逗号的情况（某些模型会漏掉）
+                cleaned = re.sub(r'"\s*"', '", "', cleaned)
+                result = json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+        
+        # 尝试6: 使用更宽松的提取策略（针对讲解模式的复杂结构）
+        if result is None and mode == DiagnosisMode.EXPLAIN:
+            try:
+                # 查找 questions 数组
+                questions_match = re.search(r'"questions"\s*:\s*(\[[\s\S]*?\])\s*,\s*"summary"', raw_response, re.DOTALL)
+                if questions_match:
+                    questions_json = questions_match.group(1)
+                    # 清理并解析
+                    questions_json = questions_json.replace("'", '"')
+                    questions_json = re.sub(r',(\s*[}\]])', r'\1', questions_json)
+                    questions = json.loads(questions_json)
+                    result = {"questions": questions, "summary": {}, "confidence": 0.8}
+            except Exception:
+                pass
+        
+        # 如果所有解析都失败，对于非诊断模式使用fallback
+        if result is None:
+            if mode in (DiagnosisMode.EXPLAIN, DiagnosisMode.SOLUTION):
+                # 使用文本提取构造fallback结果
+                logger.warning("json_parse_failed_using_fallback", error=parse_error, mode=mode.value)
+                result = _extract_fallback_result(raw_response, mode)
+            else:
+                logger.error("json_parse_failed", error=parse_error, response_preview=raw_response[:200])
+                raise ValueError(f"无法解析模型返回的JSON: {parse_error}")
         
         elapsed_time = time.time() - start_time
         logger.info("diagnosis_complete", homework_id=homework_id, elapsed=elapsed_time, mode=mode.value)
@@ -446,6 +561,14 @@ async def _process_diagnosis(
                     "knowledge_points": result.get("analysis", {}).get("knowledge_points", []),
                     "confidence": result.get("confidence", 0.8),
                 }
+                # 提取知识点（支持字符串或字典格式）
+                analysis_kps = result.get("analysis", {}).get("knowledge_points", [])
+                if analysis_kps:
+                    first_kp = analysis_kps[0]
+                    knowledge_point = first_kp.get("name") if isinstance(first_kp, dict) else str(first_kp)
+                else:
+                    knowledge_point = "未知"
+                
                 _homework_store[homework_id]["questions"] = [
                     {
                         "question_id": generate_id("q"),
@@ -454,7 +577,7 @@ async def _process_diagnosis(
                         "student_answer": result.get("target_question", {}).get("student_answer", "未识别"),
                         "correct_answer": result.get("target_question", {}).get("correct_answer", "待确认"),
                         "is_correct": None,  # 单题模式不提供对错判断
-                        "knowledge_point": result.get("analysis", {}).get("knowledge_points", ["未知"])[0] if result.get("analysis", {}).get("knowledge_points") else "未知",
+                        "knowledge_point": knowledge_point,
                         "difficulty": result.get("analysis", {}).get("difficulty", "unknown"),
                     }
                 ]
@@ -473,6 +596,18 @@ async def _process_diagnosis(
                 }
                 
                 # 转换题目列表
+                def _extract_knowledge_point(q):
+                    """提取知识点名称（支持字符串或字典格式）."""
+                    kps = q.get("knowledge_points", [])
+                    if not kps:
+                        return "未知"
+                    first_kp = kps[0]
+                    # 讲解模式下是字典，取 name 字段
+                    if isinstance(first_kp, dict):
+                        return first_kp.get("name", "未知")
+                    # 诊断/解答模式下是字符串
+                    return str(first_kp)
+                
                 _homework_store[homework_id]["questions"] = [
                     {
                         "question_id": generate_id("q"),
@@ -481,7 +616,7 @@ async def _process_diagnosis(
                         "student_answer": q.get("student_answer", "未识别") if mode == DiagnosisMode.DIAGNOSIS else q.get("final_answer", "见解答"),
                         "correct_answer": q.get("correct_answer", "待确认") if mode == DiagnosisMode.DIAGNOSIS else q.get("final_answer", "见解答"),
                         "is_correct": q.get("is_correct", True) if mode == DiagnosisMode.DIAGNOSIS else None,
-                        "knowledge_point": q.get("knowledge_points", ["未知"])[0] if q.get("knowledge_points") else "未知",
+                        "knowledge_point": _extract_knowledge_point(q),
                         "difficulty": q.get("difficulty", "unknown"),
                     }
                     for q in questions_data
