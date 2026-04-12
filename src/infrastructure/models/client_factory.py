@@ -5,10 +5,11 @@
 
 from typing import Optional
 
-from src.infrastructure.config import get_settings, OpenAIConfig, KimiConfig, OllamaConfig
+from src.infrastructure.config import get_settings, OpenAIConfig, KimiConfig, OllamaConfig, GeminiConfig
 from src.infrastructure.models.base import ModelClient
 from src.infrastructure.models.openai_client import OpenAIClient
 from src.infrastructure.models.ollama_client import OllamaClient
+from src.infrastructure.models.gemini_client import GeminiClient
 from src.infrastructure.logging import get_logger
 
 logger = get_logger(__name__)
@@ -129,8 +130,34 @@ def create_model_client(
             timeout=timeout,
             max_retries=max_retries,
         )
+        
+    elif provider == 'gemini':
+        # 使用 Google Gemini（推荐，免费额度 generous）
+        gemini_config: GeminiConfig = settings.gemini
+        api_key = gemini_config.api_key
+        model_name = model or gemini_config.model
+        
+        if not api_key:
+            raise ValueError(
+                "Gemini API Key 未配置。请在 .env 文件中设置 gemini_api_key，"
+                "或从 https://ai.google.dev/ 获取。"
+            )
+        
+        logger.info(
+            "creating_gemini_client",
+            model=model_name,
+        )
+        
+        return GeminiClient(
+            api_key=api_key,
+            model=model_name,
+            temperature=temperature,
+            max_tokens=max_tokens or gemini_config.max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
     else:
-        raise ValueError(f"不支持的模型提供商: {provider}，请使用 'openai'、'kimi' 或 'ollama'")
+        raise ValueError(f"不支持的模型提供商: {provider}，请使用 'openai'、'kimi'、'ollama' 或 'gemini'")
 
 
 def get_active_provider() -> str:

@@ -166,6 +166,47 @@ class KimiConfig(BaseSettings):
         return v
 
 
+class GeminiConfig(BaseSettings):
+    """Google Gemini API配置.
+    
+    免费额度非常 generous：
+    - Gemini 2.0 Flash: 1500次/分钟
+    - Gemini 1.5 Flash: 1000次/分钟
+    
+    申请地址：https://ai.google.dev/
+    """
+
+    model_config = SettingsConfigDict(
+        env_prefix="GEMINI_",
+        extra="ignore",
+    )
+
+    api_key: Optional[str] = Field(
+        default=None,
+        description="Google AI API密钥",
+    )
+    model: str = Field(
+        default="gemini-2.0-flash-exp",
+        description="默认使用的模型",
+    )
+    max_retries: int = Field(
+        default=3,
+        description="最大重试次数",
+    )
+    timeout: float = Field(
+        default=60.0,
+        description="请求超时时间(秒)",
+    )
+    temperature: float = Field(
+        default=0.7,
+        description="生成温度",
+    )
+    max_tokens: int = Field(
+        default=2048,
+        description="最大生成token数",
+    )
+
+
 class AnthropicConfig(BaseSettings):
     """Anthropic API配置."""
 
@@ -521,7 +562,7 @@ class Settings(BaseSettings):
     # 模型提供商选择
     active_model_provider: str = Field(
         default="openai",
-        description="当前激活的模型提供商 (openai|kimi|ollama)",
+        description="当前激活的模型提供商 (openai|kimi|ollama|gemini)",
     )
     
     # 子配置
@@ -531,6 +572,7 @@ class Settings(BaseSettings):
     kimi: KimiConfig = Field(default_factory=KimiConfig)
     ollama: OllamaConfig = Field(default_factory=OllamaConfig)
     baidu_ocr: BaiduOCRConfig = Field(default_factory=BaiduOCRConfig)
+    gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     anthropic: AnthropicConfig = Field(default_factory=AnthropicConfig)
     deepseek: DeepSeekConfig = Field(default_factory=DeepSeekConfig)
     llama: LlamaConfig = Field(default_factory=LlamaConfig)

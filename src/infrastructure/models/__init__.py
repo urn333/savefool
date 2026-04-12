@@ -13,6 +13,7 @@ from src.infrastructure.models.base import (
 )
 from src.infrastructure.models.openai_client import OpenAIClient
 from src.infrastructure.models.baidu_ocr_client import BaiduOCRClient
+from src.infrastructure.models.gemini_client import GeminiClient
 from src.infrastructure.models.client_factory import (
     create_model_client,
     create_ocr_client,
@@ -41,6 +42,7 @@ __all__ = [
     # 具体实现
     "OpenAIClient",
     "BaiduOCRClient",
+    "GeminiClient",
     # 工厂函数
     "create_model_client",
     "create_ocr_client",
