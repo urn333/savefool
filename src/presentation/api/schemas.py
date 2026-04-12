@@ -165,6 +165,9 @@ class HomeworkDetail(BaseModel):
     completed_at: Optional[int] = Field(None, description="完成时间戳")
     questions: List[QuestionInfo] = Field(default_factory=list, description="题目列表")
     summary: Optional[HomeworkSummaryStats] = None
+    diagnosis_result: Optional[Dict[str, Any]] = Field(None, description="诊断结果")
+    ocr_result: Optional[Dict[str, Any]] = Field(None, description="OCR识别结果")
+    raw_model_response: Optional[str] = Field(None, description="模型原始响应")
 
 
 # ========== 诊断相关Schema ==========

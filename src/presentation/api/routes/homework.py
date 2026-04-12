@@ -552,6 +552,9 @@ async def get_homework(homework_id: str) -> BaseResponse:
         completed_at=hw.get("completed_at"),
         questions=questions,
         summary=summary,
+        diagnosis_result=hw.get("diagnosis_result"),
+        ocr_result=hw.get("ocr_result"),
+        raw_model_response=hw.get("raw_model_response"),
     )
     
     return BaseResponse(

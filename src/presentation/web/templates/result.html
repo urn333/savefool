@@ -227,6 +227,116 @@
     left: 0;
 }
 
+/* 诊断结果展示样式 */
+.diagnosis-result-box {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.diagnosis-result-title {
+    font-weight: 600;
+    color: #dc2626;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.diagnosis-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.diagnosis-info-item {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+}
+
+.diagnosis-info-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.diagnosis-info-value {
+    font-weight: 600;
+    color: #333;
+}
+
+.diagnosis-analysis {
+    background: white;
+    padding: 12px;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+
+.diagnosis-analysis-title {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+}
+
+.diagnosis-analysis-content {
+    color: #555;
+    line-height: 1.6;
+    font-size: 0.95rem;
+}
+
+.confidence-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.confidence-badge.high {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.confidence-badge.medium {
+    background: #fef9c3;
+    color: #854d0e;
+}
+
+.confidence-badge.low {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.raw-response-box {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.raw-response-title {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.raw-response-content {
+    font-family: monospace;
+    font-size: 0.85rem;
+    color: #333;
+    white-space: pre-wrap;
+    line-height: 1.5;
+}
+
 .empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -352,6 +462,10 @@ function renderResult(data) {
     const questionsList = document.getElementById('questionsList');
     const questions = data.questions || [];
     
+    // 获取诊断结果
+    const diagnosisResult = data.diagnosis_result || {};
+    const ocrResult = data.ocr_result || {};
+    
     if (questions.length === 0) {
         questionsList.innerHTML = `
             <div class="empty-state">
@@ -366,7 +480,59 @@ function renderResult(data) {
         return;
     }
     
-    questionsList.innerHTML = questions.map((q, index) => `
+    questionsList.innerHTML = questions.map((q, index) => {
+        // 构建诊断信息HTML（如果是错题且诊断结果存在）
+        let diagnosisHTML = '';
+        if (q.is_correct === false && diagnosisResult && diagnosisResult.error_type) {
+            const confidence = diagnosisResult.confidence || 0;
+            const confidenceClass = confidence >= 0.8 ? 'high' : (confidence >= 0.5 ? 'medium' : 'low');
+            const confidenceText = confidence >= 0.8 ? '高置信度' : (confidence >= 0.5 ? '中等置信度' : '低置信度');
+            
+            diagnosisHTML = `
+                <div class="diagnosis-result-box">
+                    <div class="diagnosis-result-title">
+                        🔍 AI诊断分析
+                        <span class="confidence-badge ${confidenceClass}">${confidenceText} (${(confidence * 100).toFixed(0)}%)</span>
+                    </div>
+                    <div class="diagnosis-info-grid">
+                        <div class="diagnosis-info-item">
+                            <div class="diagnosis-info-label">错误类型</div>
+                            <div class="diagnosis-info-value">${diagnosisResult.error_type || '未知'}</div>
+                        </div>
+                        <div class="diagnosis-info-item">
+                            <div class="diagnosis-info-label">是否正确</div>
+                            <div class="diagnosis-info-value">${diagnosisResult.is_correct ? '✓ 正确' : '✗ 错误'}</div>
+                        </div>
+                    </div>
+                    ${diagnosisResult.diagnosis ? `
+                        <div class="diagnosis-analysis">
+                            <div class="diagnosis-analysis-title">诊断详情</div>
+                            <div class="diagnosis-analysis-content">
+                                ${typeof diagnosisResult.diagnosis === 'object' ? 
+                                    Object.entries(diagnosisResult.diagnosis).map(([k, v]) => `<div><strong>${k}:</strong> ${v}</div>`).join('') : 
+                                    diagnosisResult.diagnosis}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${ocrResult.knowledge_points ? `
+                        <div class="diagnosis-analysis" style="margin-top: 8px;">
+                            <div class="diagnosis-analysis-title">涉及知识点</div>
+                            <div class="diagnosis-analysis-content">
+                                ${Array.isArray(ocrResult.knowledge_points) ? ocrResult.knowledge_points.join('、') : ocrResult.knowledge_points}
+                            </div>
+                        </div>
+                    ` : ''}
+                    ${data.raw_model_response ? `
+                        <div class="raw-response-box">
+                            <div class="raw-response-title">模型原始响应（调试用）</div>
+                            <div class="raw-response-content">${data.raw_model_response}</div>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+        
+        return `
         <div class="question-item ${q.is_correct === false ? 'error' : 'correct'}">
             <div class="question-header">
                 <span class="question-number">第 ${index + 1} 题</span>
@@ -385,6 +551,7 @@ function renderResult(data) {
                     <div class="answer-value">${q.correct_answer || '-'}</div>
                 </div>
             </div>
+            ${diagnosisHTML}
             ${q.is_correct === false ? `
                 <button class="btn btn-secondary" style="width: 100%; margin-top: 12px;" 
                     onclick="startDiagnosis('${q.question_id}')">
@@ -392,7 +559,7 @@ function renderResult(data) {
                 </button>
             ` : ''}
         </div>
-    `).join('');
+    `}).join('');
     
     // 如果有错题，显示第一个的分层诊断
     const firstError = questions.find(q => q.is_correct === false);
