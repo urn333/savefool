@@ -68,6 +68,8 @@ class OpenAIConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="OPENAI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -126,6 +128,8 @@ class KimiConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="KIMI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -191,6 +195,8 @@ class GeminiConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="GEMINI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -309,6 +315,8 @@ class BaiduOCRConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="BAIDU_OCR_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -335,6 +343,8 @@ class OllamaConfig(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="OLLAMA_",
+        env_file=".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 

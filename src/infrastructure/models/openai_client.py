@@ -421,12 +421,16 @@ class OpenAIClient(ModelClient):
         )
 
         # 调用API
+        # 使用传入的参数或默认值
+        call_temperature = kwargs.pop('temperature', self.temperature)
+        call_max_tokens = kwargs.pop('max_tokens', self.max_tokens)
+        
         completion: ChatCompletion = await self._call_with_retry(
             self._client.chat.completions.create,
             model=effective_model,
             messages=api_messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+            temperature=call_temperature,
+            max_tokens=call_max_tokens,
             **kwargs,
         )
 

@@ -105,6 +105,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
     """异步处理诊断流程.
     
     使用真实的大模型进行OCR识别和诊断。
+    流程：图像预处理 → OCR识别 → 模型诊断
     
     Args:
         homework_id: 作业ID
@@ -123,33 +124,95 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
         )
         
         # 检查API Key是否配置
+        # 注意：OCR和诊断都需要视觉能力，所以 vision=True
         try:
-            model_client = create_model_client()
-            logger.info("model_client_created", provider=settings.active_model_provider)
+            model_client = create_model_client(vision=True)
+            logger.info("model_client_created", provider=settings.active_model_provider, vision=True)
         except ValueError as e:
             logger.error("api_key_not_configured", error=str(e))
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
             return
         
-        # 创建OCR引擎
-        ocr_engine = OCREngine(model_client)
+        # 步骤1: 图像预处理（旋转校正、对比度增强、智能裁剪）
+        logger.info("image_preprocessing_start", homework_id=homework_id)
+        try:
+            from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+            import asyncio
+            
+            # 配置预处理选项（保守策略，确保文字不丢失）
+            preprocess_options = PreprocessOptions(
+                correct_perspective=True,    # 透视校正
+                correct_rotation=True,       # 旋转校正
+                remove_background=False,     # 默认关闭背景去除（避免误删文字）
+                enhance_contrast=True,       # 对比度增强
+                auto_crop=True,              # 智能裁剪
+                content_margin=20,           # 内容边距
+                white_threshold=240,         # 白色阈值
+            )
+            
+            preprocessor = ImagePreprocessor(preprocess_options)
+            
+            # 在后台线程执行图像预处理
+            loop = asyncio.get_event_loop()
+            prep_result = await loop.run_in_executor(
+                None,
+                preprocessor.process,
+                image_path,
+            )
+            
+            if prep_result.success:
+                logger.info(
+                    "image_preprocessing_complete",
+                    homework_id=homework_id,
+                    corrections=prep_result.applied_corrections,
+                    original_size=prep_result.original_size,
+                    processed_size=prep_result.processed_size,
+                )
+                # 将处理后的图像转为base64
+                image_base64 = preprocessor.to_base64(prep_result.image)
+            else:
+                logger.warning(
+                    "image_preprocessing_failed",
+                    homework_id=homework_id,
+                    error=prep_result.error,
+                    fallback="using_original_image"
+                )
+                # 预处理失败，使用原图
+                with open(image_path, "rb") as f:
+                    image_bytes = f.read()
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+        except Exception as e:
+            logger.warning(
+                "image_preprocessing_error",
+                homework_id=homework_id,
+                error=str(e),
+                fallback="using_original_image"
+            )
+            # 预处理出错，使用原图
+            with open(image_path, "rb") as f:
+                image_bytes = f.read()
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
         
-        # 读取图片并转换为base64
-        with open(image_path, "rb") as f:
-            image_bytes = f.read()
-        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-        
+        # 步骤2: OCR识别
         logger.info("ocr_recognition_start", homework_id=homework_id)
         
-        # 执行OCR识别
+        # 创建OCR引擎（传入预处理后的图像，无需再次预处理）
+        ocr_engine = OCREngine(
+            model_client,
+            default_options=OCROptions(
+                preprocess=False,  # 已经预处理过了
+            )
+        )
+        
         ocr_result = await ocr_engine.recognize(
-            image_base64=image_base64,
+            image_path=image_base64,  # 传入base64数据
             options=OCROptions(
                 detect_subject=True,
                 detect_problem_type=True,
                 extract_student_answer=True,
                 language_hint="zh",
+                preprocess=False,  # 已经预处理过了
             ),
         )
         
@@ -167,15 +230,34 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
             confidence=ocr_result.confidence,
         )
         
+        # 步骤3: 模型诊断
+        # 确定使用的视觉模型
+        if settings.active_model_provider == "kimi":
+            vision_model = settings.kimi.vision_model  # kimi-k2.5
+        elif settings.active_model_provider == "openai":
+            vision_model = settings.openai.vision_model  # gpt-4o
+        else:
+            vision_model = None  # 使用客户端默认模型
+        
+        logger.info(
+            "model_diagnosis_config",
+            homework_id=homework_id,
+            provider=settings.active_model_provider,
+            vision_model=vision_model,
+        )
+        
         # 创建模型调度器进行详细诊断
+        # k2.5 模型要求 temperature=1.0
+        effective_temperature = 1.0 if vision_model and 'k2.5' in vision_model else 0.3
+        
         scheduler = ModelAScheduler(
             client=model_client,
             config=SchedulerConfig(
                 model_id="model_a",
-                model_name=settings.kimi.model if settings.active_model_provider == "kimi" else settings.openai.model,
-                temperature=0.3,
+                model_name=vision_model or (settings.kimi.model if settings.active_model_provider == "kimi" else settings.openai.model),
+                temperature=effective_temperature,
                 max_tokens=2048,
-                timeout=30.0,
+                timeout=60.0,  # 视觉模型需要更长时间
                 weight=0.4,
             ),
         )

@@ -22,6 +22,7 @@ def create_model_client(
     max_tokens: int = 2048,
     timeout: float = 60.0,
     max_retries: int = 3,
+    vision: bool = False,
 ) -> ModelClient:
     """创建模型客户端.
     
@@ -34,6 +35,7 @@ def create_model_client(
         max_tokens: 最大token数
         timeout: 请求超时时间
         max_retries: 最大重试次数
+        vision: 是否需要视觉能力（会强制使用视觉模型）
         
     Returns:
         模型客户端实例
@@ -44,6 +46,9 @@ def create_model_client(
         >>> 
         >>> # 显式指定提供商和模型
         >>> client = create_model_client(provider="kimi", model="kimi-k2.5")
+        >>> 
+        >>> # 创建支持视觉的客户端
+        >>> client = create_model_client(vision=True)
     """
     settings = get_settings()
     
@@ -59,33 +64,46 @@ def create_model_client(
         api_key = kimi_config.api_key
         api_base = kimi_config.api_base
         
-        # 判断是否启用 Thinking 模式
-        if kimi_config.enable_thinking and model is None:
+        # 确定使用的模型
+        # 优先级：显式指定的 model > vision模式下的vision_model > thinking模式 > 默认模型
+        if model:
+            model_name = model
+        elif vision:
+            # 视觉任务必须使用支持图片的模型
+            model_name = kimi_config.vision_model
+            logger.info("kimi_vision_mode_enabled", model=model_name)
+        elif kimi_config.enable_thinking:
+            # 非视觉任务可以启用 thinking 模式
             model_name = kimi_config.thinking_model
             logger.info("kimi_thinking_mode_enabled", model=model_name)
         else:
-            model_name = model or kimi_config.model
+            model_name = kimi_config.model
             
-        vision_model = kimi_config.vision_model
-        
         if not api_key:
             raise ValueError(
                 "Kimi API Key 未配置。请在 .env 文件中设置 kimi_api_key，"
                 "或从 https://www.kimi.com/code 控制台获取。"
             )
         
+        # k2.5 模型要求 temperature=1.0（思考模式）或 0.6（非思考模式）
+        effective_temperature = temperature
+        if 'k2.5' in model_name or 'k2-thinking' in model_name:
+            effective_temperature = 1.0
+            logger.info("kimi_temperature_adjusted", temperature=effective_temperature)
+        
         logger.info(
             "creating_kimi_client",
             model=model_name,
             api_base=api_base,
-            thinking_mode=kimi_config.enable_thinking,
+            vision_mode=vision,
+            thinking_mode=kimi_config.enable_thinking and not vision,
         )
         
         return OpenAIClient(
             api_key=api_key,
             model=model_name,
             api_base=api_base,
-            temperature=temperature,
+            temperature=effective_temperature,
             max_tokens=max_tokens or kimi_config.max_tokens,
             timeout=timeout,
             max_retries=max_retries,

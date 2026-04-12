@@ -7,7 +7,6 @@
 - 对比度增强：轻度CLAHE，避免过度处理
 """
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -15,7 +14,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass

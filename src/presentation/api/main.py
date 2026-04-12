@@ -298,6 +298,7 @@ def _register_static_files(app: FastAPI) -> None:
         app: FastAPI应用实例
     """
     import os
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
     
     # 静态文件目录
     static_dir = os.path.join(
@@ -306,40 +307,49 @@ def _register_static_files(app: FastAPI) -> None:
     if os.path.exists(static_dir):
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
     
-    # 模板目录
+    # 上传文件目录（用于访问上传的作业图片）
+    upload_dir = settings.UPLOAD_DIR or "./uploads"
+    if os.path.exists(upload_dir):
+        app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
+    
+    # 模板目录 - 使用裸 Jinja2 API
     templates_dir = os.path.join(
         os.path.dirname(__file__), "..", "web", "templates"
     )
     
     if os.path.exists(templates_dir):
-        templates = Jinja2Templates(directory=templates_dir)
+        # 使用裸 Jinja2，禁用缓存避免 dict 问题
+        jinja_env = Environment(
+            loader=FileSystemLoader(templates_dir),
+            autoescape=select_autoescape(['html', 'xml']),
+            cache_size=0,  # 禁用缓存
+        )
+        
+        def render_template(template_name: str, context: dict) -> str:
+            """渲染模板."""
+            template = jinja_env.get_template(template_name)
+            return template.render(**context)
         
         @app.get("/web/upload", response_class=HTMLResponse)
         async def upload_page(request: Request):
             """上传页面."""
-            return templates.TemplateResponse(
-                request,
-                "upload.html",
-                {}
-            )
+            html = render_template("upload.html", {"active_page": "upload"})
+            return HTMLResponse(html)
         
         @app.get("/web/result/{homework_id}", response_class=HTMLResponse)
         async def result_page(request: Request, homework_id: str):
             """结果页面."""
-            return templates.TemplateResponse(
-                request,
-                "result.html",
-                {"homework_id": homework_id}
-            )
+            html = render_template("result.html", {
+                "homework_id": homework_id,
+                "active_page": "result"
+            })
+            return HTMLResponse(html)
         
         @app.get("/web/statistics", response_class=HTMLResponse)
         async def statistics_page(request: Request):
             """统计页面."""
-            return templates.TemplateResponse(
-                request,
-                "statistics.html",
-                {}
-            )
+            html = render_template("statistics.html", {"active_page": "statistics"})
+            return HTMLResponse(html)
 
 
 # 创建应用实例
