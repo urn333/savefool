@@ -21,22 +21,21 @@ class TestPreprocessOptions:
         opts = PreprocessOptions()
         assert opts.correct_perspective is True
         assert opts.correct_rotation is True
-        assert opts.remove_background is True
+        assert opts.remove_background is False  # 默认关闭
         assert opts.enhance_contrast is True
-        assert opts.target_dpi == 150
-        assert opts.jpeg_quality == 85
+        assert opts.jpeg_quality == 90
+        assert opts.perspective_margin == 0.02
     
     def test_custom_options(self):
         """测试自定义选项."""
         opts = PreprocessOptions(
             correct_perspective=False,
-            enhance_contrast=False,
-            jpeg_quality=90,
+            remove_background=True,
+            jpeg_quality=95,
         )
         assert opts.correct_perspective is False
-        assert opts.correct_rotation is True
-        assert opts.enhance_contrast is False
-        assert opts.jpeg_quality == 90
+        assert opts.remove_background is True
+        assert opts.jpeg_quality == 95
 
 
 class TestImagePreprocessor:
@@ -49,20 +48,28 @@ class TestImagePreprocessor:
     
     @pytest.fixture
     def sample_image(self):
-        """创建测试图像."""
-        # 创建一个模拟的作业纸张图像（白色背景，黑色边框）
-        image = np.ones((800, 600, 3), dtype=np.uint8) * 255
-        # 添加黑色边框模拟纸张
+        """创建测试图像（模拟作业纸张）."""
         cv2 = pytest.importorskip("cv2")
+        
+        # 创建白色背景的模拟纸张
+        image = np.ones((800, 600, 3), dtype=np.uint8) * 255
+        
+        # 添加深色边框模拟纸张边缘
         cv2.rectangle(image, (50, 50), (550, 750), (0, 0, 0), 3)
-        # 添加一些文字区域
-        cv2.rectangle(image, (100, 100), (500, 200), (0, 0, 0), -1)
+        
+        # 添加模拟文字行
+        cv2.rectangle(image, (100, 150), (500, 200), (60, 60, 60), -1)
+        cv2.rectangle(image, (100, 300), (500, 350), (60, 60, 60), -1)
+        cv2.rectangle(image, (100, 450), (500, 500), (60, 60, 60), -1)
+        
         return image
     
     def test_initialization(self, preprocessor):
         """测试初始化."""
         assert preprocessor.options is not None
         assert preprocessor.options.correct_perspective is True
+        # 默认关闭背景去除，避免误删文字
+        assert preprocessor.options.remove_background is False
     
     def test_process_with_numpy_array(self, preprocessor, sample_image):
         """测试直接处理numpy数组."""
@@ -91,15 +98,27 @@ class TestImagePreprocessor:
         assert np.allclose(ordered[2], [400, 400])
         assert np.allclose(ordered[3], [100, 400])
     
-    def test_enhance_contrast(self, preprocessor, sample_image):
-        """测试对比度增强."""
+    def test_enhance_contrast_safe(self, preprocessor, sample_image):
+        """测试安全的对比度增强."""
         opts = PreprocessOptions()
         
-        result = preprocessor._enhance_contrast(sample_image, opts)
+        result = preprocessor._enhance_contrast_safe(sample_image, opts)
         
         assert result is not None
         assert result.shape == sample_image.shape
         assert result.dtype == sample_image.dtype
+        # 确保没有溢出
+        assert np.all(result >= 0) and np.all(result <= 255)
+    
+    def test_remove_border_only(self, preprocessor, sample_image):
+        """测试仅去除边框."""
+        opts = PreprocessOptions()
+        
+        result = preprocessor._remove_border_only(sample_image, opts)
+        
+        # 尺寸应该几乎不变（只裁剪了1%边缘）
+        assert abs(result.shape[0] - sample_image.shape[0]) < 20
+        assert abs(result.shape[1] - sample_image.shape[1]) < 20
     
     def test_to_base64(self, preprocessor, sample_image):
         """测试base64编码."""
@@ -126,6 +145,32 @@ class TestImagePreprocessor:
         loaded = cv2.imread(str(output_path))
         assert loaded is not None
         assert loaded.shape == sample_image.shape
+    
+    def test_text_preserved_after_processing(self, preprocessor):
+        """测试处理后文字区域保留."""
+        cv2 = pytest.importorskip("cv2")
+        
+        # 创建带有明确文字区域的图像
+        image = np.ones((600, 400, 3), dtype=np.uint8) * 255
+        
+        # 绘制一个矩形模拟纸张
+        cv2.rectangle(image, (50, 50), (350, 550), (240, 240, 240), -1)
+        cv2.rectangle(image, (50, 50), (350, 550), (0, 0, 0), 2)
+        
+        # 添加文字区域
+        cv2.rectangle(image, (80, 150), (320, 180), (50, 50, 50), -1)
+        cv2.rectangle(image, (80, 250), (320, 280), (50, 50, 50), -1)
+        
+        # 处理
+        result = preprocessor.process(image)
+        
+        assert result.success
+        # 文字区域应该仍然存在（不为白色）
+        processed = result.image
+        
+        # 检查文字区域是否还有深色像素
+        text_region_1 = processed[150:180, 80:320]
+        assert np.mean(text_region_1) < 250  # 不是全白
 
 
 class TestImagePreprocessorPipeline:
@@ -143,6 +188,8 @@ class TestImagePreprocessorPipeline:
         
         # 创建测试图像
         test_image = np.ones((800, 600, 3), dtype=np.uint8) * 255
+        cv2.rectangle(test_image, (50, 50), (550, 750), (0, 0, 0), 2)
+        
         input_path = tmp_path / "test_input.jpg"
         cv2.imwrite(str(input_path), test_image)
         
@@ -152,8 +199,7 @@ class TestImagePreprocessorPipeline:
         result = await pipeline.process_upload(input_path, output_dir)
         
         assert isinstance(result, PreprocessResult)
-        # 注意：实际处理可能失败（取决于图像内容）
-        # 但不应该抛出异常
+        # 不应该抛出异常
 
 
 class TestPreprocessResult:
@@ -175,13 +221,13 @@ class TestPreprocessResult:
             image=np.ones((100, 100, 3), dtype=np.uint8),
             original_size=(200, 200),
             processed_size=(100, 100),
-            applied_corrections=["perspective", "contrast_enhancement"],
-            confidence=0.85,
+            applied_corrections=["perspective(0.95)", "contrast"],
+            confidence=0.95,
         )
         
         assert result.success is True
         assert len(result.applied_corrections) == 2
-        assert result.confidence == 0.85
+        assert result.confidence == 0.95
 
 
 class TestPreprocessIntegration:
@@ -192,24 +238,26 @@ class TestPreprocessIntegration:
         """创建测试图像文件."""
         cv2 = pytest.importorskip("cv2")
         
-        # 创建一张带有透视变形的模拟作业图像
+        # 创建一张模拟作业图像
         image = np.ones((1200, 900, 3), dtype=np.uint8) * 255
         
-        # 绘制一个倾斜的四边形模拟纸张
+        # 绘制纸张矩形（轻微倾斜）
+        angle = 3
+        center = (450, 600)
         pts = np.array([
-            [100, 150],   # 左上（偏移）
-            [800, 100],   # 右上（偏移）
-            [850, 1100],  # 右下（偏移）
-            [150, 1050],  # 左下（偏移）
+            [100, 100],
+            [800, 120],
+            [820, 1100],
+            [80, 1080],
         ], np.int32)
         
-        # 填充白色，边框黑色
-        cv2.fillPoly(image, [pts], (255, 255, 255))
-        cv2.polylines(image, [pts], True, (0, 0, 0), 3)
+        cv2.fillPoly(image, [pts], (250, 250, 250))
+        cv2.polylines(image, [pts], True, (200, 200, 200), 2)
         
-        # 添加一些"文字"区域
-        cv2.rectangle(image, (200, 300), (700, 400), (50, 50, 50), -1)
-        cv2.rectangle(image, (200, 500), (700, 600), (50, 50, 50), -1)
+        # 添加文字行
+        cv2.rectangle(image, (200, 300), (700, 350), (60, 60, 60), -1)
+        cv2.rectangle(image, (200, 450), (700, 500), (60, 60, 60), -1)
+        cv2.rectangle(image, (200, 600), (700, 650), (60, 60, 60), -1)
         
         # 保存
         image_path = tmp_path / "homework_sample.jpg"
@@ -221,7 +269,12 @@ class TestPreprocessIntegration:
         """测试完整预处理流程."""
         cv2 = pytest.importorskip("cv2")
         
-        preprocessor = ImagePreprocessor()
+        preprocessor = ImagePreprocessor(PreprocessOptions(
+            correct_perspective=True,
+            correct_rotation=True,
+            remove_background=False,  # 关闭，保护文字
+            enhance_contrast=True,
+        ))
         
         # 处理图像
         result = preprocessor.process(sample_image_path)
@@ -232,13 +285,12 @@ class TestPreprocessIntegration:
         if result.success:
             # 验证处理效果
             assert result.image is not None
-            assert len(result.applied_corrections) > 0
-            
-            # 保存结果
-            output_path = tmp_path / "processed.jpg"
-            preprocessor.save(result.image, output_path)
-            
-            # 验证输出文件
-            assert output_path.exists()
-            saved_image = cv2.imread(str(output_path))
-            assert saved_image is not None
+            # 验证文字区域没有被删除
+            processed = result.image
+            # 检查中间区域是否还有深色内容
+            center_region = processed[
+                processed.shape[0]//3:2*processed.shape[0]//3,
+                processed.shape[1]//4:3*processed.shape[1]//4
+            ]
+            # 应该包含深色像素（文字）
+            assert np.any(center_region < 200)

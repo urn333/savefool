@@ -1,31 +1,21 @@
 """图像预处理引擎.
 
-提供作业照片预处理功能：
-- 透视校正：自动检测纸张边缘并矫正
+提供作业照片预处理功能，采用保守策略确保文字不丢失：
+- 透视校正：自动检测纸张边缘并矫正，保留边距
 - 旋转校正：检测文本方向并旋转
-- 去噪/背景去除：消除手指、阴影等干扰
-- 对比度增强：自适应直方图均衡化
+- 背景去除：仅去除边缘，不影响内容区域
+- 对比度增强：轻度CLAHE，避免过度处理
 """
 
 import logging
-from dataclasses import dataclass
-from enum import Enum, auto
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
-from PIL import Image, ImageEnhance
 
 logger = logging.getLogger(__name__)
-
-
-class CorrectionMode(Enum):
-    """校正模式."""
-    NONE = auto()       # 不校正
-    AUTO = auto()       # 自动检测并校正
-    FORCE_PORTRAIT = auto()  # 强制竖版
-    FORCE_LANDSCAPE = auto()  # 强制横版
 
 
 @dataclass
@@ -35,26 +25,28 @@ class PreprocessOptions:
     Attributes:
         correct_perspective: 是否进行透视校正
         correct_rotation: 是否进行旋转校正
-        remove_background: 是否去除背景/无关内容
+        remove_background: 是否去除背景/无关内容（默认关闭，容易误删文字）
         enhance_contrast: 是否增强对比度
         target_dpi: 目标DPI（用于标准化输出）
         output_format: 输出格式（PNG/JPEG）
         jpeg_quality: JPEG质量（1-100）
+        perspective_margin: 透视校正后保留的边距比例
     """
     correct_perspective: bool = True
     correct_rotation: bool = True
-    remove_background: bool = True
+    remove_background: bool = False  # 默认关闭，避免误删文字
     enhance_contrast: bool = True
     target_dpi: int = 150
     output_format: str = "jpeg"
-    jpeg_quality: int = 85
+    jpeg_quality: int = 90
     
     # 透视校正参数
-    min_contour_area_ratio: float = 0.1  # 最小轮廓面积比例
-    approx_accuracy: float = 0.02  # 多边形近似精度
+    perspective_margin: float = 0.02  # 保留2%边距
+    min_paper_area_ratio: float = 0.15  # 最小纸张面积比例
+    max_paper_area_ratio: float = 0.95  # 最大纸张面积比例
     
-    # 对比度增强参数
-    clahe_clip_limit: float = 2.0
+    # 对比度增强参数（保守）
+    clahe_clip_limit: float = 1.5
     clahe_grid_size: int = 8
     
     # 去噪参数
@@ -78,20 +70,15 @@ class PreprocessResult:
     image: Optional[np.ndarray] = None
     original_size: Optional[Tuple[int, int]] = None
     processed_size: Optional[Tuple[int, int]] = None
-    applied_corrections: list = None
+    applied_corrections: List[str] = field(default_factory=list)
     confidence: float = 0.0
     error: Optional[str] = None
-    
-    def __post_init__(self):
-        if self.applied_corrections is None:
-            self.applied_corrections = []
 
 
 class ImagePreprocessor:
     """图像预处理引擎.
     
-    专门处理作业照片的预处理，包括透视校正、旋转校正、
-    背景去除和对比度增强。
+    专门处理作业照片的预处理，采用保守策略确保文字内容不丢失。
     
     Example:
         >>> preprocessor = ImagePreprocessor()
@@ -134,38 +121,37 @@ class ImagePreprocessor:
                 image = self._load_image(str(image_path))
             
             result.original_size = (image.shape[1], image.shape[0])
-            result.image = image.copy()
             
             self.logger.info(
                 "preprocess_start",
                 original_size=result.original_size,
             )
             
-            # 1. 透视校正
+            # 1. 透视校正（保守策略）
             if opts.correct_perspective:
-                image, confidence = self._correct_perspective(image, opts)
+                image, confidence = self._correct_perspective_safe(image, opts)
                 if confidence > 0.5:
-                    result.applied_corrections.append("perspective")
+                    result.applied_corrections.append(f"perspective({confidence:.2f})")
                     result.confidence = max(result.confidence, confidence)
                     self.logger.debug("perspective_corrected", confidence=confidence)
             
             # 2. 旋转校正
             if opts.correct_rotation:
                 image, angle = self._correct_rotation(image, opts)
-                if angle != 0:
+                if abs(angle) > 0.5:
                     result.applied_corrections.append(f"rotation({angle:.1f}°)")
                     self.logger.debug("rotation_corrected", angle=angle)
             
-            # 3. 去除背景/无关内容
+            # 3. 去除背景/无关内容（默认关闭）
             if opts.remove_background:
-                image = self._remove_background(image, opts)
-                result.applied_corrections.append("background_removal")
-                self.logger.debug("background_removed")
+                image = self._remove_border_only(image, opts)
+                result.applied_corrections.append("border")
+                self.logger.debug("border_removed")
             
-            # 4. 对比度增强
+            # 4. 对比度增强（轻度）
             if opts.enhance_contrast:
-                image = self._enhance_contrast(image, opts)
-                result.applied_corrections.append("contrast_enhancement")
+                image = self._enhance_contrast_safe(image, opts)
+                result.applied_corrections.append("contrast")
                 self.logger.debug("contrast_enhanced")
             
             result.image = image
@@ -199,14 +185,14 @@ class ImagePreprocessor:
             raise ValueError(f"无法加载图像: {image_path}")
         return image
     
-    def _correct_perspective(
+    def _correct_perspective_safe(
         self,
         image: np.ndarray,
         opts: PreprocessOptions,
     ) -> Tuple[np.ndarray, float]:
-        """透视校正.
+        """安全的透视校正 - 保留更多内容.
         
-        检测纸张边缘并进行透视变换，将倾斜的纸张矫正为正面视角。
+        使用自适应阈值检测纸张边缘，保留边距以避免裁剪文字。
         
         Args:
             image: 输入图像
@@ -216,69 +202,73 @@ class ImagePreprocessor:
             (校正后的图像, 置信度)
         """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # 边缘检测
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(blurred, 50, 150)
         
-        # 膨胀连接边缘
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        edges = cv2.dilate(edges, kernel, iterations=2)
-        edges = cv2.erode(edges, kernel, iterations=1)
+        # 使用自适应阈值而不是Canny，对文字更友好
+        thresh = cv2.adaptiveThreshold(
+            blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, 11, 2
+        )
         
         # 查找轮廓
         contours, _ = cv2.findContours(
-            edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
         
         if not contours:
             return image, 0.0
         
-        # 找到最大的轮廓
+        # 找到最大的轮廓（应该是纸张）
         max_contour = max(contours, key=cv2.contourArea)
-        area_ratio = cv2.contourArea(max_contour) / (image.shape[0] * image.shape[1])
+        area = cv2.contourArea(max_contour)
+        total_area = image.shape[0] * image.shape[1]
+        area_ratio = area / total_area
         
-        # 轮廓面积太小，可能是干扰
-        if area_ratio < opts.min_contour_area_ratio:
+        # 如果轮廓太小或太大，可能是误检测
+        if area_ratio < opts.min_paper_area_ratio or area_ratio > opts.max_paper_area_ratio:
             return image, 0.0
         
-        # 近似多边形
-        epsilon = opts.approx_accuracy * cv2.arcLength(max_contour, True)
+        # 近似四边形
+        epsilon = 0.02 * cv2.arcLength(max_contour, True)
         approx = cv2.approxPolyDP(max_contour, epsilon, True)
         
-        # 如果不是四边形，尝试使用最小外接矩形
+        # 如果不是四边形，使用最小外接矩形
         if len(approx) != 4:
             rect = cv2.minAreaRect(max_contour)
             box = cv2.boxPoints(rect)
             approx = box.reshape(4, 1, 2)
         
-        # 确保点是顺时针顺序
         pts = approx.reshape(4, 2).astype(np.float32)
         pts = self._order_points(pts)
         
-        # 计算目标尺寸
+        # 计算目标尺寸（加上边距）
+        margin = opts.perspective_margin
         width_a = np.linalg.norm(pts[2] - pts[3])
         width_b = np.linalg.norm(pts[1] - pts[0])
-        max_width = int(max(width_a, width_b))
+        max_width = int(max(width_a, width_b) * (1 + margin * 2))
         
         height_a = np.linalg.norm(pts[1] - pts[2])
         height_b = np.linalg.norm(pts[0] - pts[3])
-        max_height = int(max(height_a, height_b))
+        max_height = int(max(height_a, height_b) * (1 + margin * 2))
         
-        # 透视变换
+        # 目标点（加上边距偏移）
+        margin_w = int(max_width * margin / (1 + margin * 2))
+        margin_h = int(max_height * margin / (1 + margin * 2))
+        
         dst = np.array([
-            [0, 0],
-            [max_width - 1, 0],
-            [max_width - 1, max_height - 1],
-            [0, max_height - 1]
+            [margin_w, margin_h],
+            [max_width - margin_w - 1, margin_h],
+            [max_width - margin_w - 1, max_height - margin_h - 1],
+            [margin_w, max_height - margin_h - 1]
         ], dtype=np.float32)
         
         matrix = cv2.getPerspectiveTransform(pts, dst)
-        warped = cv2.warpPerspective(image, matrix, (max_width, max_height))
+        warped = cv2.warpPerspective(
+            image, matrix, (max_width, max_height),
+            borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255)
+        )
         
-        # 置信度基于轮廓面积比例
-        confidence = min(area_ratio * 2, 1.0)
-        
+        confidence = min(area_ratio * 1.5, 1.0)
         return warped, confidence
     
     def _order_points(self, pts: np.ndarray) -> np.ndarray:
@@ -291,17 +281,12 @@ class ImagePreprocessor:
             排序后的点
         """
         rect = np.zeros((4, 2), dtype=np.float32)
-        
-        # 按坐标和排序
         s = pts.sum(axis=1)
         rect[0] = pts[np.argmin(s)]  # 左上
         rect[2] = pts[np.argmax(s)]  # 右下
-        
-        # 按坐标差排序
         diff = np.diff(pts, axis=1)
         rect[1] = pts[np.argmin(diff)]  # 右上
         rect[3] = pts[np.argmax(diff)]  # 左下
-        
         return rect
     
     def _correct_rotation(
@@ -321,8 +306,6 @@ class ImagePreprocessor:
             (旋转后的图像, 旋转角度)
         """
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        
-        # 使用霍夫变换检测直线
         edges = cv2.Canny(gray, 50, 150)
         lines = cv2.HoughLinesP(
             edges, 1, np.pi / 180, 100, minLineLength=100, maxLineGap=10
@@ -331,105 +314,83 @@ class ImagePreprocessor:
         if lines is None or len(lines) < 5:
             return image, 0.0
         
-        # 计算主要角度
         angles = []
         for line in lines:
             x1, y1, x2, y2 = line[0]
-            if x2 - x1 != 0:
+            if abs(x2 - x1) > 10:  # 避免垂直线
                 angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
                 # 归一化到 -45 到 45 度
                 while angle < -45:
                     angle += 90
                 while angle > 45:
                     angle -= 90
-                angles.append(angle)
+                if abs(angle) < 30:  # 排除极端角度
+                    angles.append(angle)
         
         if not angles:
             return image, 0.0
         
-        # 使用中位数角度（更鲁棒）
         median_angle = np.median(angles)
-        
-        # 如果角度很小，不需要旋转
-        if abs(median_angle) < 1.0:
+        if abs(median_angle) < 0.5:
             return image, 0.0
         
-        # 旋转图像
+        # 旋转
         center = (image.shape[1] // 2, image.shape[0] // 2)
         matrix = cv2.getRotationMatrix2D(center, median_angle, 1.0)
         
-        # 计算新边界
         cos = np.abs(matrix[0, 0])
         sin = np.abs(matrix[0, 1])
         new_w = int(image.shape[0] * sin + image.shape[1] * cos)
         new_h = int(image.shape[0] * cos + image.shape[1] * sin)
         
-        # 调整旋转矩阵中心
         matrix[0, 2] += (new_w - image.shape[1]) / 2
         matrix[1, 2] += (new_h - image.shape[0]) / 2
         
         rotated = cv2.warpAffine(
-            image, matrix, (new_w, new_h), borderMode=cv2.BORDER_CONSTANT,
-            borderValue=(255, 255, 255)
+            image, matrix, (new_w, new_h),
+            borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255)
         )
         
         return rotated, median_angle
     
-    def _remove_background(
+    def _remove_border_only(
         self,
         image: np.ndarray,
         opts: PreprocessOptions,
     ) -> np.ndarray:
-        """去除背景/无关内容.
-        
-        使用GrabCut算法分离前景（作业）和背景。
+        """仅去除边缘干扰，不处理内容区域.
         
         Args:
             image: 输入图像
             opts: 预处理选项
             
         Returns:
-            去噪后的图像
+            去除边缘后的图像
         """
-        # 创建掩码
-        mask = np.zeros(image.shape[:2], np.uint8)
+        h, w = image.shape[:2]
         
-        # 背景和前景模型
-        bgd_model = np.zeros((1, 65), np.float64)
-        fgd_model = np.zeros((1, 65), np.float64)
+        # 创建一个略微缩小的ROI，裁剪边缘
+        border = int(min(h, w) * 0.01)  # 1%边距
         
-        # 初始矩形（假设作业在中心）
-        height, width = image.shape[:2]
-        margin_x = int(width * 0.05)
-        margin_y = int(height * 0.05)
-        rect = (margin_x, margin_y, width - 2 * margin_x, height - 2 * margin_y)
+        # 复制图像并裁剪边缘
+        result = image[border:h-border, border:w-border].copy()
         
-        # GrabCut
-        cv2.grabCut(
-            image, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT
+        # 添加白色边框回来
+        result = cv2.copyMakeBorder(
+            result, border, border, border, border,
+            cv2.BORDER_CONSTANT, value=(255, 255, 255)
         )
-        
-        # 创建掩码：0和2为背景，1和3为前景
-        mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
-        
-        # 应用掩码
-        result = image * mask2[:, :, np.newaxis]
-        
-        # 背景设为白色
-        white_bg = np.ones_like(image) * 255
-        white_bg = white_bg * (1 - mask2[:, :, np.newaxis])
-        result = result + white_bg
         
         return result
     
-    def _enhance_contrast(
+    def _enhance_contrast_safe(
         self,
         image: np.ndarray,
         opts: PreprocessOptions,
     ) -> np.ndarray:
-        """增强对比度.
+        """安全的对比度增强 - 不过度处理.
         
-        使用CLAHE（对比度受限的自适应直方图均衡化）增强文字对比度。
+        使用轻度CLAHE和锐化，避免文字失真。
         
         Args:
             image: 输入图像
@@ -442,7 +403,7 @@ class ImagePreprocessor:
         lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         
-        # 应用CLAHE到L通道
+        # 使用保守的参数
         clahe = cv2.createCLAHE(
             clipLimit=opts.clahe_clip_limit,
             tileGridSize=(opts.clahe_grid_size, opts.clahe_grid_size)
@@ -453,11 +414,14 @@ class ImagePreprocessor:
         enhanced = cv2.merge([l, a, b])
         enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
         
-        # 额外的锐化
-        kernel = np.array([[-1, -1, -1],
-                          [-1,  9, -1],
-                          [-1, -1, -1]])
+        # 轻度锐化
+        kernel = np.array([[-0.5, -0.5, -0.5],
+                          [-0.5,  5,   -0.5],
+                          [-0.5, -0.5, -0.5]])
         sharpened = cv2.filter2D(enhanced, -1, kernel)
+        
+        # 限制范围
+        sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
         
         return sharpened
     
@@ -482,11 +446,9 @@ class ImagePreprocessor:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         if opts.output_format.lower() == "jpeg" or output_path.suffix.lower() in [".jpg", ".jpeg"]:
-            # JPEG 压缩
             encode_params = [cv2.IMWRITE_JPEG_QUALITY, opts.jpeg_quality]
             cv2.imwrite(str(output_path), image, encode_params)
         else:
-            # PNG 无损
             cv2.imwrite(str(output_path), image)
         
         self.logger.info("image_saved", path=str(output_path))
@@ -553,10 +515,9 @@ class ImagePreprocessorPipeline:
         # 在后台线程中执行图像处理
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None,  # 使用默认执行器
+            None,
             self.preprocessor.process,
             image_path,
-            None,  # 使用默认选项
         )
         
         if result.success:

@@ -38,3 +38,7 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+# Test images
+data/*.jpg
+!data/.gitkeep
