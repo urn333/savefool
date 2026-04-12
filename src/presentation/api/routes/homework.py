@@ -239,21 +239,45 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
         logger.info("kimi_response_received", homework_id=homework_id, response_length=len(raw_response))
         
         # 提取JSON部分
+        result = None
+        parse_error = None
+        
+        # 尝试1: 直接解析
         try:
-            # 尝试直接解析
             result = json.loads(raw_response)
-        except json.JSONDecodeError:
-            # 尝试从markdown代码块中提取
-            json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group(1))
-            else:
-                # 尝试从文本中提取最像JSON的部分
+        except json.JSONDecodeError as e:
+            parse_error = str(e)
+        
+        # 尝试2: 从markdown代码块中提取
+        if result is None:
+            try:
+                json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group(1))
+            except json.JSONDecodeError as e:
+                parse_error = str(e)
+        
+        # 尝试3: 从文本中提取JSON对象
+        if result is None:
+            try:
                 json_match = re.search(r'\{[\s\S]*\}', raw_response)
                 if json_match:
                     result = json.loads(json_match.group(0))
-                else:
-                    raise ValueError("无法解析模型返回的JSON")
+            except json.JSONDecodeError as e:
+                parse_error = str(e)
+        
+        # 尝试4: 清理转义字符后解析
+        if result is None:
+            try:
+                # 替换常见的转义问题
+                cleaned = raw_response.replace('\\n', '\n').replace('\\t', '\t')
+                result = json.loads(cleaned)
+            except json.JSONDecodeError:
+                pass
+        
+        if result is None:
+            logger.error("json_parse_failed", error=parse_error, response_preview=raw_response[:200])
+            raise ValueError(f"无法解析模型返回的JSON: {parse_error}")
         
         elapsed_time = time.time() - start_time
         logger.info("diagnosis_complete", homework_id=homework_id, elapsed=elapsed_time)
