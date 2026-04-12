@@ -141,7 +141,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
         
         # 创建模型客户端
         try:
-            model_client = create_model_client(vision=True)
+            model_client = create_model_client(vision=True, timeout=180.0)
             logger.info("model_client_ready", provider=settings.active_model_provider)
         except ValueError as e:
             logger.error("api_key_error", error=str(e))
