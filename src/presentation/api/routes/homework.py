@@ -46,6 +46,25 @@ router = APIRouter()
 # 内存存储（实际项目应使用数据库）
 _homework_store: dict = {}
 _processing_tasks: dict = {}
+_progress_store: dict = {}  # 进度存储: homework_id -> {"stage": "", "progress": 0, "message": ""}
+
+
+def _update_progress(homework_id: str, stage: str, progress: int, message: str) -> None:
+    """更新作业处理进度.
+    
+    Args:
+        homework_id: 作业ID
+        stage: 当前阶段
+        progress: 进度百分比(0-100)
+        message: 进度描述
+    """
+    _progress_store[homework_id] = {
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "timestamp": int(datetime.utcnow().timestamp()),
+    }
+    logger.info("progress_update", homework_id=homework_id, stage=stage, progress=progress)
 
 
 # 支持的图片格式
@@ -123,6 +142,9 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
             image_path=image_path,
         )
         
+        # 更新进度：初始化
+        _update_progress(homework_id, "init", 5, "正在初始化...")
+        
         # 检查API Key是否配置
         # 注意：OCR和诊断都需要视觉能力，所以 vision=True
         try:
@@ -136,6 +158,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
         
         # 步骤1: 图像预处理（旋转校正、对比度增强、智能裁剪）
         logger.info("image_preprocessing_start", homework_id=homework_id)
+        _update_progress(homework_id, "preprocessing", 10, "正在预处理图像...")
         try:
             from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
             import asyncio
@@ -196,6 +219,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
         
         # 步骤2: OCR识别
         logger.info("ocr_recognition_start", homework_id=homework_id)
+        _update_progress(homework_id, "ocr", 30, "正在识别题目...")
         
         # 创建OCR引擎（传入预处理后的图像，无需再次预处理）
         ocr_engine = OCREngine(
@@ -231,6 +255,8 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
         )
         
         # 步骤3: 模型诊断
+        _update_progress(homework_id, "diagnosis", 50, "正在分析题目...")
+        
         # 确定使用的视觉模型
         if settings.active_model_provider == "kimi":
             vision_model = settings.kimi.vision_model  # kimi-k2.5
@@ -266,6 +292,7 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
         parsed_problem = ocr_result.to_parsed_problem()
         
         logger.info("model_diagnosis_start", homework_id=homework_id)
+        _update_progress(homework_id, "model_analysis", 70, "AI正在诊断分析...")
         
         # 执行模型诊断
         model_result = await scheduler.schedule(
@@ -283,6 +310,9 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str)
             confidence=model_result.confidence,
             elapsed_time=elapsed_time,
         )
+        
+        # 更新进度：完成
+        _update_progress(homework_id, "complete", 95, "正在组装结果...")
         
         # 更新作业状态
         if homework_id in _homework_store:
@@ -593,4 +623,61 @@ async def delete_homework(homework_id: str) -> BaseResponse:
         code=0,
         message="success",
         data=DeleteResponse(deleted=True).model_dump()
+    )
+
+
+@router.get(
+    "/{homework_id}/progress",
+    response_model=BaseResponse,
+    summary="获取作业处理进度",
+    description="查询作业诊断的实时进度",
+)
+async def get_homework_progress(homework_id: str) -> BaseResponse:
+    """获取作业处理进度.
+    
+    Args:
+        homework_id: 作业ID
+        
+    Returns:
+        进度信息
+    """
+    # 检查作业是否存在
+    if homework_id not in _homework_store:
+        raise NotFoundException(resource_type="作业", resource_id=homework_id)
+    
+    # 获取进度
+    progress = _progress_store.get(homework_id, {
+        "stage": "unknown",
+        "progress": 0,
+        "message": "等待开始...",
+    })
+    
+    # 获取作业状态
+    hw = _homework_store[homework_id]
+    status = hw["status"]
+    
+    # 如果已完成，进度设为100
+    if status == HomeworkStatus.COMPLETED.value:
+        progress = {
+            "stage": "complete",
+            "progress": 100,
+            "message": "诊断完成！",
+        }
+    elif status == HomeworkStatus.FAILED.value:
+        progress = {
+            "stage": "error",
+            "progress": 0,
+            "message": hw.get("error_message", "诊断失败"),
+        }
+    
+    return BaseResponse(
+        code=0,
+        message="success",
+        data={
+            "homework_id": homework_id,
+            "status": status,
+            "stage": progress["stage"],
+            "progress": progress["progress"],
+            "message": progress["message"],
+        }
     )

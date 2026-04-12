@@ -199,34 +199,9 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
         progressCard.style.display = 'block';
         submitBtn.style.display = 'none';
         
-        // 模拟进度
-        let progress = 0;
         const progressFill = document.getElementById('progressFill');
         const progressText = document.getElementById('progressText');
         const timeRemaining = document.getElementById('timeRemaining');
-        
-        const progressInterval = setInterval(() => {
-            progress += 2;
-            progressFill.style.width = `${progress}%`;
-            
-            if (progress < 20) {
-                progressText.textContent = '正在上传图片...';
-            } else if (progress < 40) {
-                progressText.textContent = '正在识别题目...';
-            } else if (progress < 60) {
-                progressText.textContent = '正在分析错误...';
-            } else if (progress < 80) {
-                progressText.textContent = '正在生成讲解...';
-            } else {
-                progressText.textContent = '正在组装结果...';
-            }
-            
-            timeRemaining.textContent = Math.max(1, Math.ceil((100 - progress) / 3));
-            
-            if (progress >= 100) {
-                clearInterval(progressInterval);
-            }
-        }, 500);
         
         // 发送请求
         const response = await fetch(`${API_BASE}/homework`, {
@@ -240,14 +215,47 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             throw new Error(result.message);
         }
         
-        clearInterval(progressInterval);
-        progressFill.style.width = '100%';
-        progressText.textContent = '诊断完成！';
+        const homeworkId = result.data.homework_id;
         
-        // 跳转到结果页面
+        // 开始轮询真实进度
+        let pollingInterval = setInterval(async () => {
+            try {
+                const progressResp = await fetch(`${API_BASE}/homework/${homeworkId}/progress`);
+                const progressData = await progressResp.json();
+                
+                if (progressData.code === 0) {
+                    const data = progressData.data;
+                    progressFill.style.width = `${data.progress}%`;
+                    progressText.textContent = data.message;
+                    
+                    // 估算剩余时间
+                    const remaining = Math.max(1, Math.ceil((100 - data.progress) / 5));
+                    timeRemaining.textContent = remaining;
+                    
+                    // 检查是否完成或失败
+                    if (data.status === 'completed' || data.progress >= 100) {
+                        clearInterval(pollingInterval);
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '诊断完成！';
+                        
+                        // 跳转到结果页面
+                        setTimeout(() => {
+                            window.location.href = `/web/result/${homeworkId}`;
+                        }, 500);
+                    } else if (data.status === 'failed') {
+                        clearInterval(pollingInterval);
+                        throw new Error(data.message || '诊断失败');
+                    }
+                }
+            } catch (e) {
+                console.error('获取进度失败:', e);
+            }
+        }, 1000); // 每秒轮询一次
+        
+        // 设置最大轮询时间（90秒）
         setTimeout(() => {
-            window.location.href = `/web/result/${result.data.homework_id}`;
-        }, 500);
+            clearInterval(pollingInterval);
+        }, 90000);
         
     } catch (error) {
         hideLoading(submitBtn);
