@@ -40,7 +40,12 @@ class OpenAIClient(ModelClient):
         ... ])
     """
 
-    VISION_MODELS = {"gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini"}
+    VISION_MODELS = {
+        # OpenAI 视觉模型
+        "gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini",
+        # Kimi 视觉模型
+        "kimi-k2.5", "kimi-k2-thinking",
+    }
 
     def __init__(
         self,
