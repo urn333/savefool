@@ -218,8 +218,8 @@ async def _process_diagnosis(homework_id: str, image_path: str, student_id: str,
         from src.infrastructure.models.base import Message
         
         messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=user_content),
+            Message.system(system_prompt),
+            Message.user(user_content),
         ]
         
         vision_model = settings.kimi.vision_model if settings.active_model_provider == "kimi" else "kimi-k2.5"
