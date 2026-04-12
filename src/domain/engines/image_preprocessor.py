@@ -51,6 +51,12 @@ class PreprocessOptions:
     
     # 去噪参数
     denoise_strength: int = 10
+    
+    # 智能裁剪参数
+    auto_crop: bool = True  # 自动裁剪空白边缘
+    content_margin: int = 20  # 内容边距（像素）
+    white_threshold: int = 240  # 白色阈值（高于此值视为背景）
+    min_content_size: int = 100  # 最小内容区域尺寸
 
 
 @dataclass
@@ -153,6 +159,13 @@ class ImagePreprocessor:
                 image = self._enhance_contrast_safe(image, opts)
                 result.applied_corrections.append("contrast")
                 self.logger.debug("contrast_enhanced")
+            
+            # 5. 智能裁剪（去除空白背景）
+            if opts.auto_crop:
+                image, crop_info = self._auto_crop_content(image, opts)
+                if crop_info:
+                    result.applied_corrections.append(f"crop({crop_info})")
+                    self.logger.debug("auto_cropped", info=crop_info)
             
             result.image = image
             result.processed_size = (image.shape[1], image.shape[0])
@@ -382,6 +395,93 @@ class ImagePreprocessor:
         )
         
         return result
+    
+    def _auto_crop_content(
+        self,
+        image: np.ndarray,
+        opts: PreprocessOptions,
+    ) -> Tuple[np.ndarray, Optional[str]]:
+        """智能裁剪 - 检测纸张边缘并裁剪.
+        
+        针对作业照片优化：
+        1. 先去除纯白色边框（旋转填充区域）
+        2. 检测纸张（浅色）与背景（桌面/深色）的边界
+        
+        Args:
+            image: 输入图像
+            opts: 预处理选项
+            
+        Returns:
+            (裁剪后的图像, 裁剪信息字符串)
+        """
+        # 转换为灰度图
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # 步骤1: 先去除纯白色边框（旋转填充区域）
+        # 找到非白色区域（实际内容）
+        _, non_white = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+        
+        # 找到非白色区域的边界
+        coords = cv2.findNonZero(non_white)
+        if coords is not None:
+            x, y, w, h = cv2.boundingRect(coords)
+            # 检查是否有效裁剪（至少保留50%区域）
+            if w > image.shape[1] * 0.5 and h > image.shape[0] * 0.5:
+                margin = opts.content_margin
+                min_x = max(0, x - margin)
+                min_y = max(0, y - margin)
+                max_x = min(image.shape[1], x + w + margin)
+                max_y = min(image.shape[0], y + h + margin)
+                image = image[min_y:max_y, min_x:max_x]
+                gray = gray[min_y:max_y, min_x:max_x]
+        
+        # 步骤2: 在新的图像上检测纸张边缘
+        # 使用自适应阈值检测纸张区域
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        
+        # 检测纸张（亮色区域）vs 背景（深色）
+        _, paper_mask = cv2.threshold(blurred, opts.white_threshold, 255, cv2.THRESH_BINARY)
+        
+        # 形态学操作清理噪声
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (21, 21))
+        paper_mask = cv2.morphologyEx(paper_mask, cv2.MORPH_CLOSE, kernel)
+        paper_mask = cv2.morphologyEx(paper_mask, cv2.MORPH_OPEN, kernel)
+        
+        # 查找纸张轮廓
+        contours, _ = cv2.findContours(paper_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            return image, None
+        
+        # 找到最大的轮廓（应该是纸张）
+        max_contour = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(max_contour)
+        total_area = image.shape[0] * image.shape[1]
+        area_ratio = area / total_area
+        
+        # 检查是否合理（10% - 95%）
+        if area_ratio < 0.1 or area_ratio > 0.95:
+            return image, None
+        
+        # 获取纸张的边界框
+        x, y, w, h = cv2.boundingRect(max_contour)
+        
+        # 添加边距
+        margin = opts.content_margin
+        min_x = max(0, x - margin)
+        min_y = max(0, y - margin)
+        max_x = min(image.shape[1], x + w + margin)
+        max_y = min(image.shape[0], y + h + margin)
+        
+        # 裁剪
+        cropped = image[min_y:max_y, min_x:max_x]
+        
+        crop_info = f"{image.shape[1]}x{image.shape[0]}->{cropped.shape[1]}x{cropped.shape[0]}"
+        
+        return cropped, crop_info
     
     def _enhance_contrast_safe(
         self,
