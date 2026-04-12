@@ -43,11 +43,15 @@ class OCROptions:
         detect_problem_type: 是否自动检测题目类型
         extract_student_answer: 是否提取学生答案
         language_hint: 语言提示(zh/en)
+        preprocess: 是否进行图像预处理
+        preprocess_options: 预处理选项
     """
     detect_subject: bool = True
     detect_problem_type: bool = True
     extract_student_answer: bool = True
     language_hint: str = "zh"
+    preprocess: bool = True
+    preprocess_options: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -94,6 +98,7 @@ class OCREngine:
     """OCR识别引擎.
     
     使用GPT-4V进行图片识别，提取题目文本、学生答案等信息。
+    支持图像预处理（透视校正、对比度增强等）以提高识别准确率。
     
     Example:
         >>> engine = OCREngine(client)
@@ -132,17 +137,34 @@ class OCREngine:
         self.client = client
         self.default_options = default_options or OCROptions()
         self.logger = get_logger(__name__)
+        
+        # 初始化图像预处理器
+        self._preprocessor = None
+        if self.default_options.preprocess:
+            try:
+                from src.domain.engines.image_preprocessor import (
+                    ImagePreprocessor, PreprocessOptions
+                )
+                prep_opts = PreprocessOptions(
+                    **(self.default_options.preprocess_options or {})
+                )
+                self._preprocessor = ImagePreprocessor(prep_opts)
+                self.logger.info("ocr_preprocessor_initialized")
+            except ImportError as e:
+                self.logger.warning("ocr_preprocessor_import_failed", error=str(e))
     
     async def recognize(
         self,
-        image_path: Union[str, Path],
+        image_path: Union[str, Path, str],
         subject_hint: Optional[str] = None,
         options: Optional[OCROptions] = None,
     ) -> OCRResult:
         """识别图片中的题目.
         
+        支持自动图像预处理以提高识别准确率。
+        
         Args:
-            image_path: 图片路径
+            image_path: 图片路径或base64编码的图像数据
             subject_hint: 学科提示(可选)
             options: OCR选项
             
@@ -153,13 +175,54 @@ class OCREngine:
         
         self.logger.info(
             "ocr_start",
-            image_path=str(image_path),
+            image_path=str(image_path)[:50] if not isinstance(image_path, str) or len(image_path) < 100 else "base64_data",
             subject_hint=subject_hint,
+            preprocess_enabled=opts.preprocess,
         )
         
         try:
-            # 读取图片
-            image_data = self._read_image(image_path)
+            # 判断是否已经是base64数据
+            if isinstance(image_path, str) and len(image_path) > 1000:
+                # 可能是base64数据
+                image_data = image_path
+                self.logger.debug("using_provided_base64_data")
+            else:
+                # 文件路径，进行预处理和读取
+                image_path = Path(image_path)
+                
+                # 图像预处理
+                if opts.preprocess and self._preprocessor is not None:
+                    import asyncio
+                    
+                    # 在后台线程执行预处理
+                    loop = asyncio.get_event_loop()
+                    prep_result = await loop.run_in_executor(
+                        None,
+                        self._preprocessor.process,
+                        image_path,
+                    )
+                    
+                    if prep_result.success:
+                        self.logger.info(
+                            "ocr_preprocess_complete",
+                            corrections=prep_result.applied_corrections,
+                            confidence=prep_result.confidence,
+                            original_size=prep_result.original_size,
+                            processed_size=prep_result.processed_size,
+                        )
+                        # 使用处理后的图像
+                        image_data = self._preprocessor.to_base64(prep_result.image)
+                    else:
+                        self.logger.warning(
+                            "ocr_preprocess_failed",
+                            error=prep_result.error,
+                            fallback="using_original_image"
+                        )
+                        # 预处理失败，使用原图
+                        image_data = self._read_image(image_path)
+                else:
+                    # 不预处理，直接读取
+                    image_data = self._read_image(image_path)
             
             # 构建提示
             user_prompt = "请识别这张图片中的题目内容。"
@@ -182,7 +245,6 @@ class OCREngine:
             
             self.logger.info(
                 "ocr_success",
-                image_path=str(image_path),
                 confidence=result.confidence,
                 content_length=len(result.content),
             )
@@ -192,7 +254,6 @@ class OCREngine:
         except Exception as e:
             self.logger.error(
                 "ocr_error",
-                image_path=str(image_path),
                 error=str(e),
             )
             return OCRResult(
