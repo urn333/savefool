@@ -17,7 +17,6 @@ from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger
 from src.infrastructure.models import create_model_client
 from src.domain.engines.ocr_engine import OCREngine, OCROptions
-from src.domain.engines.model_schedulers import ModelAScheduler, SchedulerConfig, ParsedProblem
 from src.presentation.api.exceptions import (
     BusinessException,
     ErrorCode,
@@ -120,248 +119,187 @@ def _validate_image(file: UploadFile) -> None:
         )
 
 
-async def _process_diagnosis(homework_id: str, image_path: str, student_id: str) -> None:
-    """异步处理诊断流程.
-    
-    使用真实的大模型进行OCR识别和诊断。
-    流程：图像预处理 → OCR识别 → 模型诊断
+
+async def _process_diagnosis(homework_id: str, image_path: str, student_id: str, parent_description: Optional[str] = None) -> None:
+    """简化版诊断流程: 本地预处理 -> Kimi直接诊断.
     
     Args:
         homework_id: 作业ID
         image_path: 图片路径
         student_id: 学生ID
+        parent_description: 家长描述
     """
     import time
+    import asyncio
+    import json
+    import re
     start_time = time.time()
     
     try:
-        logger.info(
-            "diagnosis_task_start",
-            homework_id=homework_id,
-            student_id=student_id,
-            image_path=image_path,
-        )
-        
-        # 更新进度：初始化
+        logger.info("diagnosis_start", homework_id=homework_id, student_id=student_id)
         _update_progress(homework_id, "init", 5, "正在初始化...")
         
-        # 检查API Key是否配置
-        # 注意：OCR和诊断都需要视觉能力，所以 vision=True
+        # 创建模型客户端
         try:
             model_client = create_model_client(vision=True)
-            logger.info("model_client_created", provider=settings.active_model_provider, vision=True)
+            logger.info("model_client_ready", provider=settings.active_model_provider)
         except ValueError as e:
-            logger.error("api_key_not_configured", error=str(e))
+            logger.error("api_key_error", error=str(e))
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
             return
         
-        # 步骤1: 图像预处理（旋转校正、对比度增强、智能裁剪）
-        logger.info("image_preprocessing_start", homework_id=homework_id)
-        _update_progress(homework_id, "preprocessing", 10, "正在预处理图像...")
+        # 步骤1: 本地图像预处理
+        logger.info("preprocessing_start", homework_id=homework_id)
+        _update_progress(homework_id, "preprocessing", 15, "正在预处理图像...")
+        
         try:
             from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
-            import asyncio
             
-            # 配置预处理选项（保守策略，确保文字不丢失）
             preprocess_options = PreprocessOptions(
-                correct_perspective=True,    # 透视校正
-                correct_rotation=True,       # 旋转校正
-                remove_background=False,     # 默认关闭背景去除（避免误删文字）
-                enhance_contrast=True,       # 对比度增强
-                auto_crop=True,              # 智能裁剪
-                content_margin=20,           # 内容边距
-                white_threshold=240,         # 白色阈值
+                correct_perspective=True,
+                correct_rotation=True,
+                remove_background=False,
+                enhance_contrast=True,
+                auto_crop=True,
+                content_margin=20,
+                white_threshold=240,
             )
             
             preprocessor = ImagePreprocessor(preprocess_options)
-            
-            # 在后台线程执行图像预处理
             loop = asyncio.get_event_loop()
-            prep_result = await loop.run_in_executor(
-                None,
-                preprocessor.process,
-                image_path,
-            )
+            prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
             
             if prep_result.success:
-                logger.info(
-                    "image_preprocessing_complete",
-                    homework_id=homework_id,
-                    corrections=prep_result.applied_corrections,
-                    original_size=prep_result.original_size,
-                    processed_size=prep_result.processed_size,
-                )
-                # 将处理后的图像转为base64
+                logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
                 image_base64 = preprocessor.to_base64(prep_result.image)
             else:
-                logger.warning(
-                    "image_preprocessing_failed",
-                    homework_id=homework_id,
-                    error=prep_result.error,
-                    fallback="using_original_image"
-                )
-                # 预处理失败，使用原图
+                logger.warning("preprocessing_failed", fallback="original")
                 with open(image_path, "rb") as f:
-                    image_bytes = f.read()
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                    image_base64 = base64.b64encode(f.read()).decode("utf-8")
         except Exception as e:
-            logger.warning(
-                "image_preprocessing_error",
-                homework_id=homework_id,
-                error=str(e),
-                fallback="using_original_image"
-            )
-            # 预处理出错，使用原图
+            logger.warning("preprocessing_error", error=str(e), fallback="original")
             with open(image_path, "rb") as f:
-                image_bytes = f.read()
-            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                image_base64 = base64.b64encode(f.read()).decode("utf-8")
         
-        # 步骤2: OCR识别
-        logger.info("ocr_recognition_start", homework_id=homework_id)
-        _update_progress(homework_id, "ocr", 30, "正在识别题目...")
+        # 步骤2: Kimi直接诊断（一次API调用完成识别+诊断）
+        logger.info("kimi_diagnosis_start", homework_id=homework_id)
+        _update_progress(homework_id, "diagnosis", 40, "Kimi正在分析...")
         
-        # 创建OCR引擎（传入预处理后的图像，无需再次预处理）
-        ocr_engine = OCREngine(
-            model_client,
-            default_options=OCROptions(
-                preprocess=False,  # 已经预处理过了
-            )
-        )
+        # 构建端到端诊断Prompt
+        system_prompt = """你是一位专业的数学作业诊断助手。请仔细分析学生上传的作业图片，完成以下任务：
+
+1. **识别题目内容**：提取图片中的题目文本
+2. **识别学生答案**：找到学生写的答案（如果有）
+3. **判断对错**：分析学生的答案是否正确
+4. **错误诊断**：如果错了，分析错误原因（计算错误/概念错误/粗心等）
+5. **给出建议**：提供针对性的学习建议
+
+请严格按照以下JSON格式返回结果：
+{
+    "content": "识别的题目内容",
+    "student_answer": "学生答案",
+    "correct_answer": "正确答案",
+    "is_correct": true/false,
+    "error_type": "错误类型：calculation_error(计算错误)/concept_error(概念错误)/careless(粗心)/none(无错误)",
+    "diagnosis": "详细的诊断分析",
+    "knowledge_points": ["涉及的知识点1", "知识点2"],
+    "suggestion": "给学生的学习建议",
+    "confidence": 0.95
+}"""
+
+        user_content = "请分析这张作业图片"
+        if parent_description:
+            user_content += f"\n\n家长描述：{parent_description}"
         
-        ocr_result = await ocr_engine.recognize(
-            image_path=image_base64,  # 传入base64数据
-            options=OCROptions(
-                detect_subject=True,
-                detect_problem_type=True,
-                extract_student_answer=True,
-                language_hint="zh",
-                preprocess=False,  # 已经预处理过了
-            ),
-        )
+        _update_progress(homework_id, "analyzing", 70, "AI正在深度分析...")
         
-        if not ocr_result.success:
-            logger.error("ocr_failed", homework_id=homework_id, error=ocr_result.error)
-            _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
-            _homework_store[homework_id]["error_message"] = f"OCR识别失败: {ocr_result.error}"
-            return
+        # 调用Kimi视觉模型
+        from src.infrastructure.models.base import Message
         
-        logger.info(
-            "ocr_complete",
-            homework_id=homework_id,
-            subject=ocr_result.subject,
-            problem_type=ocr_result.problem_type,
-            confidence=ocr_result.confidence,
-        )
+        messages = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=user_content),
+        ]
         
-        # 步骤3: 模型诊断
-        _update_progress(homework_id, "diagnosis", 50, "正在分析题目...")
+        vision_model = settings.kimi.vision_model if settings.active_model_provider == "kimi" else "kimi-k2.5"
         
-        # 确定使用的视觉模型
-        if settings.active_model_provider == "kimi":
-            vision_model = settings.kimi.vision_model  # kimi-k2.5
-        elif settings.active_model_provider == "openai":
-            vision_model = settings.openai.vision_model  # gpt-4o
-        else:
-            vision_model = None  # 使用客户端默认模型
-        
-        logger.info(
-            "model_diagnosis_config",
-            homework_id=homework_id,
-            provider=settings.active_model_provider,
-            vision_model=vision_model,
-        )
-        
-        # 创建模型调度器进行详细诊断
-        # k2.5 模型要求 temperature=1.0
-        effective_temperature = 1.0 if vision_model and 'k2.5' in vision_model else 0.3
-        
-        scheduler = ModelAScheduler(
-            client=model_client,
-            config=SchedulerConfig(
-                model_id="model_a",
-                model_name=vision_model or (settings.kimi.model if settings.active_model_provider == "kimi" else settings.openai.model),
-                temperature=effective_temperature,
-                max_tokens=2048,
-                timeout=60.0,  # 视觉模型需要更长时间
-                weight=0.4,
-            ),
-        )
-        
-        # 解析题目
-        parsed_problem = ocr_result.to_parsed_problem()
-        
-        logger.info("model_diagnosis_start", homework_id=homework_id)
-        _update_progress(homework_id, "model_analysis", 70, "AI正在诊断分析...")
-        
-        # 执行模型诊断
-        model_result = await scheduler.schedule(
-            problem=parsed_problem,
+        model_response = await model_client.complete_with_vision(
+            messages=messages,
             images=[image_base64],
+            model=vision_model,
+            temperature=1.0,  # kimi-k2.5要求
+            max_tokens=2048,
         )
+        
+        _update_progress(homework_id, "parsing", 90, "正在解析结果...")
+        
+        # 解析模型返回的JSON
+        raw_response = model_response.content
+        logger.info("kimi_response_received", homework_id=homework_id, response_length=len(raw_response))
+        
+        # 提取JSON部分
+        try:
+            # 尝试直接解析
+            result = json.loads(raw_response)
+        except json.JSONDecodeError:
+            # 尝试从markdown代码块中提取
+            json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group(1))
+            else:
+                # 尝试从文本中提取最像JSON的部分
+                json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                if json_match:
+                    result = json.loads(json_match.group(0))
+                else:
+                    raise ValueError("无法解析模型返回的JSON")
         
         elapsed_time = time.time() - start_time
-        
-        logger.info(
-            "diagnosis_complete",
-            homework_id=homework_id,
-            is_correct=model_result.is_correct,
-            error_type=model_result.error_type.value if model_result.error_type else None,
-            confidence=model_result.confidence,
-            elapsed_time=elapsed_time,
-        )
+        logger.info("diagnosis_complete", homework_id=homework_id, elapsed=elapsed_time)
         
         # 更新进度：完成
-        _update_progress(homework_id, "complete", 95, "正在组装结果...")
+        _update_progress(homework_id, "complete", 100, "诊断完成！")
         
-        # 更新作业状态
+        # 保存结果
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.COMPLETED.value
             _homework_store[homework_id]["completed_at"] = int(datetime.utcnow().timestamp())
             _homework_store[homework_id]["ocr_result"] = {
-                "content": ocr_result.content,
-                "student_answer": ocr_result.student_answer,
-                "subject": ocr_result.subject,
-                "problem_type": ocr_result.problem_type,
-                "knowledge_points": ocr_result.knowledge_points,
-                "confidence": ocr_result.confidence,
+                "content": result.get("content", ""),
+                "student_answer": result.get("student_answer"),
+                "subject": "math",
+                "problem_type": "unknown",
+                "knowledge_points": result.get("knowledge_points", []),
+                "confidence": result.get("confidence", 0.8),
             }
             _homework_store[homework_id]["diagnosis_result"] = {
-                "is_correct": model_result.is_correct,
-                "error_type": model_result.error_type.value if model_result.error_type else None,
-                "confidence": model_result.confidence,
-                "diagnosis": model_result.diagnosis,
+                "is_correct": result.get("is_correct", True),
+                "error_type": result.get("error_type") if not result.get("is_correct") else None,
+                "confidence": result.get("confidence", 0.8),
+                "diagnosis": result.get("diagnosis", ""),
             }
             _homework_store[homework_id]["questions"] = [
                 {
                     "question_id": generate_id("q"),
-                    "type": ocr_result.problem_type,
-                    "content": ocr_result.content[:200] if ocr_result.content else "未知题目",
-                    "student_answer": ocr_result.student_answer or "未识别",
-                    "correct_answer": "待确认",  # 大模型未提供标准答案
-                    "is_correct": model_result.is_correct,
-                    "knowledge_point": ocr_result.knowledge_points[0] if ocr_result.knowledge_points else "未知",
+                    "type": "unknown",
+                    "content": result.get("content", "")[:200],
+                    "student_answer": result.get("student_answer", "未识别"),
+                    "correct_answer": result.get("correct_answer", "待确认"),
+                    "is_correct": result.get("is_correct", True),
+                    "knowledge_point": result.get("knowledge_points", ["未知"])[0] if result.get("knowledge_points") else "未知",
                     "difficulty": "unknown",
                 },
             ]
-            _homework_store[homework_id]["error_count"] = 0 if model_result.is_correct else 1
+            _homework_store[homework_id]["error_count"] = 0 if result.get("is_correct", True) else 1
             _homework_store[homework_id]["total_count"] = 1
-            _homework_store[homework_id]["raw_model_response"] = model_result.diagnosis.get("raw_response", "")
+            _homework_store[homework_id]["raw_model_response"] = raw_response
         
-        logger.info(
-            "diagnosis_task_complete",
-            homework_id=homework_id,
-            elapsed_time=elapsed_time,
-        )
+        logger.info("diagnosis_task_complete", homework_id=homework_id, elapsed_time=elapsed_time)
         
     except Exception as e:
         elapsed_time = time.time() - start_time
-        logger.exception(
-            "diagnosis_task_failed",
-            homework_id=homework_id,
-            error=str(e),
-            elapsed_time=elapsed_time,
-        )
+        logger.exception("diagnosis_failed", homework_id=homework_id, error=str(e))
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
@@ -430,7 +368,7 @@ async def upload_homework(
     }
     
     # 启动后台诊断任务
-    background_tasks.add_task(_process_diagnosis, homework_id, image_path, student_id)
+    background_tasks.add_task(_process_diagnosis, homework_id, image_path, student_id, description)
     
     logger.info(
         "homework_created",
