@@ -12,6 +12,8 @@ anthropic>=0.18.0
 
 # Image Processing
 pillow>=10.2.0
+opencv-python>=4.9.0
+numpy>=1.26.0
 
 # Utilities
 pydantic>=2.6.0
