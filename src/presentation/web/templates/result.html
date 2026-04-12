@@ -2,6 +2,24 @@
 
 {% block title %}诊断结果 - AI助教系统{% endblock %}
 
+{% block extra_head %}
+<!-- MathJax 数学公式支持 -->
+<script>
+MathJax = {
+  tex: {
+    inlineMath: [['$', '$'], ['\\(', '\\)']],
+    displayMath: [['$$', '$$'], ['\\[', '\\]']],
+    processEscapes: true,
+    processEnvironments: true
+  },
+  options: {
+    skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+  }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.min.js" async></script>
+{% endblock %}
+
 {% block extra_css %}
 .result-summary {
     display: flex;
@@ -348,6 +366,31 @@
     line-height: 1.5;
 }
 
+/* 数学公式样式 */
+.math-formula {
+    font-family: 'KaTeX_Main', 'Times New Roman', serif;
+    font-size: 1.1em;
+}
+
+.question-content .MathJax,
+.diagnosis-analysis-content .MathJax,
+.answer-value .MathJax {
+    font-size: 1.1em !important;
+    color: inherit;
+}
+
+/* 行内公式样式 */
+.mjx-chtml {
+    font-size: 1.1em !important;
+    color: #333;
+}
+
+/* 块级公式样式 */
+.mjx-chtml.MJXc-display {
+    margin: 0.5em 0;
+    text-align: center;
+}
+
 .empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -585,6 +628,13 @@ function renderResult(data) {
             ` : ''}
         </div>
     `}).join('');
+    
+    // 渲染数学公式
+    if (typeof MathJax !== 'undefined') {
+        MathJax.typesetPromise([questionsList]).catch((err) => {
+            console.error('MathJax 渲染失败:', err);
+        });
+    }
     
     // 如果有错题，显示第一个的分层诊断
     const firstError = questions.find(q => q.is_correct === false);
