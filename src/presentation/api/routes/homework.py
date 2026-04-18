@@ -1077,22 +1077,57 @@ async def upload_homework(
     upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
     image_path = _save_upload_file(image, upload_dir)
     
-    # 同步预处理图片
+    # 同步预处理图片（先 AI 页面裁切，再传统 CV 增强）
     processed_image_url = None
+    proc_path = None
     try:
+        import cv2
+        from src.domain.engines.page_cropper import PageCropper
         from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
-        preprocess_options = PreprocessOptions(
-            correct_perspective=True,
-            correct_rotation=True,
-            remove_background=False,
-            enhance_contrast=True,
-            auto_crop=True,
-            content_margin=20,
-            white_threshold=240,
-        )
-        preprocessor = ImagePreprocessor(preprocess_options)
+        
         loop = asyncio.get_event_loop()
-        prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
+        
+        # 步骤1: AI 小模型检测页面边界并裁切
+        cropper = PageCropper(timeout=15.0)
+        corners = await cropper.detect_page_boundary(image_path)
+        
+        if corners is not None:
+            # AI 检测到页面边界，执行透视变换裁切
+            original_image = cv2.imread(image_path)
+            cropped_image = cropper.crop_and_transform(original_image, corners)
+            
+            # 保存 AI 裁切后的临时图片
+            cropped_path = os.path.join(upload_dir, f"{homework_id}_ai_cropped.jpg")
+            cv2.imwrite(cropped_path, cropped_image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            
+            logger.info("ai_page_crop_complete", homework_id=homework_id, cropped_path=cropped_path)
+            
+            # 对 AI 裁切后的图片做后续预处理（禁用透视校正，因为 AI 已经做了）
+            preprocess_options = PreprocessOptions(
+                correct_perspective=False,  # AI 已做透视校正
+                correct_rotation=True,
+                remove_background=False,
+                enhance_contrast=True,
+                auto_crop=True,
+                content_margin=20,
+                white_threshold=240,
+            )
+            preprocessor = ImagePreprocessor(preprocess_options)
+            prep_result = await loop.run_in_executor(None, preprocessor.process, cropped_path)
+        else:
+            # AI 未检测到页面，fallback 到传统 CV 全流程
+            logger.info("ai_page_crop_fallback_to_cv", homework_id=homework_id)
+            preprocess_options = PreprocessOptions(
+                correct_perspective=True,
+                correct_rotation=True,
+                remove_background=False,
+                enhance_contrast=True,
+                auto_crop=True,
+                content_margin=20,
+                white_threshold=240,
+            )
+            preprocessor = ImagePreprocessor(preprocess_options)
+            prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
         
         if prep_result.success:
             proc_filename = f"{homework_id}_processed.jpg"
