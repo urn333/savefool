@@ -575,7 +575,9 @@ async def _process_diagnosis(
             )
             # 优先使用已预处理的图片进行 OCR
             ocr_image_path = stored_proc_path if stored_proc_path and os.path.exists(stored_proc_path) else image_path
-            ocr_result = await ocr_engine.recognize(ocr_image_path, subject_hint=subject.value)
+            # 从 _homework_store 中读取学科信息
+            hw_subject = _homework_store.get(homework_id, {}).get("subject", "math")
+            ocr_result = await ocr_engine.recognize(ocr_image_path, subject_hint=hw_subject)
             if ocr_result.success and ocr_result.content:
                 ocr_text = ocr_result.content
                 logger.info("ocr_success", homework_id=homework_id, content_length=len(ocr_text), confidence=ocr_result.confidence)
