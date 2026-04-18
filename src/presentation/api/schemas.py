@@ -168,6 +168,7 @@ class HomeworkDetail(BaseModel):
     subject: str = Field(..., description="学科")
     status: HomeworkStatus = Field(..., description="状态")
     image_url: Optional[str] = Field(None, description="图片URL")
+    processed_image_url: Optional[str] = Field(None, description="预处理后图片URL")
     parent_description: Optional[str] = Field(None, description="家长描述")
     created_at: int = Field(..., description="创建时间戳")
     completed_at: Optional[int] = Field(None, description="完成时间戳")

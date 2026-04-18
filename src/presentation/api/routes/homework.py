@@ -488,6 +488,18 @@ async def _process_diagnosis(
                         homework_id=homework_id, 
                         error=str(save_err))
                 
+                # 保存预处理后的图片（用于结果页展示）
+                try:
+                    upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
+                    os.makedirs(upload_dir, exist_ok=True)
+                    proc_filename = f"{homework_id}_processed.jpg"
+                    proc_path = os.path.join(upload_dir, proc_filename)
+                    cv2.imwrite(proc_path, final_image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    if homework_id in _homework_store:
+                        _homework_store[homework_id]["processed_image_url"] = f"/uploads/homework/{proc_filename}"
+                except Exception as proc_err:
+                    logger.warning("save_processed_image_failed", homework_id=homework_id, error=str(proc_err))
+
                 # 转换为base64传给API
                 image_base64 = preprocessor.to_base64(final_image)
                 
@@ -524,6 +536,17 @@ async def _process_diagnosis(
                 
                 if prep_result.success:
                     logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
+                    # 保存预处理后的图片（用于结果页展示）
+                    try:
+                        upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
+                        os.makedirs(upload_dir, exist_ok=True)
+                        proc_filename = f"{homework_id}_processed.jpg"
+                        proc_path = os.path.join(upload_dir, proc_filename)
+                        cv2.imwrite(proc_path, prep_result.image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                        if homework_id in _homework_store:
+                            _homework_store[homework_id]["processed_image_url"] = f"/uploads/homework/{proc_filename}"
+                    except Exception as proc_err:
+                        logger.warning("save_processed_image_failed", homework_id=homework_id, error=str(proc_err))
                     image_base64 = preprocessor.to_base64(prep_result.image)
                 else:
                     logger.warning("preprocessing_failed", fallback="original")
@@ -1217,6 +1240,7 @@ async def get_homework(homework_id: str) -> BaseResponse:
         subject=hw["subject"],
         status=HomeworkStatus(hw["status"]),
         image_url=hw.get("image_url"),
+        processed_image_url=hw.get("processed_image_url"),
         parent_description=hw.get("parent_description"),
         created_at=hw["created_at"],
         completed_at=hw.get("completed_at"),

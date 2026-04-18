@@ -560,6 +560,40 @@ MathJax = {
     line-height: 1.5;
 }
 
+/* 图片对比样式 */
+.image-comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.image-comparison-item {
+    text-align: center;
+}
+
+.image-comparison-item img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    object-fit: contain;
+    background: #f5f5f5;
+}
+
+.image-comparison-label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-top: 8px;
+    font-weight: 500;
+}
+
+@media (max-width: 640px) {
+    .image-comparison {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* 数学公式样式 */
 .math-formula {
     font-family: 'KaTeX_Main', 'Times New Roman', serif;
@@ -618,6 +652,14 @@ MathJax = {
 </div>
 
 <div id="resultContainer" style="display: none;">
+    <!-- 原图 vs 预处理后图片 -->
+    <div class="card" id="imageComparisonCard" style="display: none;">
+        <h3 class="card-title" style="margin: 0 0 12px 0; font-size: 1.1rem;">
+            <span>🖼️</span> 图片预处理对比
+        </h3>
+        <div class="image-comparison" id="imageComparison"></div>
+    </div>
+    
     <!-- 结果头部 -->
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
@@ -701,6 +743,9 @@ function renderResult(data) {
     };
     document.getElementById('resultTitle').textContent = titles[diagnosisMode] || '分析结果';
     
+    // 渲染图片对比
+    renderImageComparison(data);
+    
     // 根据模式渲染不同内容
     switch(diagnosisMode) {
         case 'diagnosis':
@@ -718,6 +763,31 @@ function renderResult(data) {
         default:
             renderDiagnosisMode(data);
     }
+}
+
+// 渲染图片对比
+function renderImageComparison(data) {
+    const container = document.getElementById('imageComparison');
+    const card = document.getElementById('imageComparisonCard');
+    const originalUrl = data.image_url;
+    const processedUrl = data.processed_image_url;
+    
+    if (!processedUrl) {
+        card.style.display = 'none';
+        return;
+    }
+    
+    card.style.display = 'block';
+    container.innerHTML = `
+        <div class="image-comparison-item">
+            <img src="${originalUrl}" alt="原图" onerror="this.style.display='none'">
+            <div class="image-comparison-label">📷 原始上传图片</div>
+        </div>
+        <div class="image-comparison-item">
+            <img src="${processedUrl}" alt="预处理后" onerror="this.style.display='none'">
+            <div class="image-comparison-label">✨ AI 预处理后（透视校正 + 对比度增强 + 智能裁剪）</div>
+        </div>
+    `;
 }
 
 // 诊断模式渲染
