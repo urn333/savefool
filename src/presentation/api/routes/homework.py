@@ -1047,6 +1047,7 @@ async def upload_homework(
         包含作业ID的响应
     """
     import json
+    import asyncio
     
     logger.info(
         "upload_homework",
