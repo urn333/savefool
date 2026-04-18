@@ -47,7 +47,7 @@ class PreprocessOptions:
     max_paper_area_ratio: float = 0.95  # 最大纸张面积比例
     
     # 对比度增强参数（保守）
-    clahe_clip_limit: float = 1.5
+    clahe_clip_limit: float = 2.0
     clahe_grid_size: int = 8
     
     # 去噪参数
@@ -58,6 +58,13 @@ class PreprocessOptions:
     content_margin: int = 20  # 内容边距（像素）
     white_threshold: int = 240  # 白色阈值（高于此值视为背景）
     min_content_size: int = 100  # 最小内容区域尺寸
+    
+    # 文字增强参数（新增）
+    remove_shadows: bool = True  # 去阴影（显著提升手写文字识别率）
+    shadow_kernel_size: int = 25  # 阴影去除核大小
+    binarize: bool = False  # 自适应二值化（默认关闭，可能丢失灰度信息）
+    binarize_block_size: int = 11  # 自适应阈值块大小
+    sharpen_strength: float = 1.0  # 锐化强度（1.0为默认，2.0更强）
 
 
 @dataclass
@@ -155,13 +162,25 @@ class ImagePreprocessor:
                 result.applied_corrections.append("border")
                 self.logger.debug("border_removed")
             
-            # 4. 对比度增强（轻度）
+            # 4. 去阴影（新增：显著提升文字清晰度）
+            if opts.remove_shadows:
+                image = self._remove_shadows(image, opts)
+                result.applied_corrections.append("shadow")
+                self.logger.debug("shadows_removed")
+            
+            # 5. 对比度增强（增强版）
             if opts.enhance_contrast:
                 image = self._enhance_contrast_safe(image, opts)
                 result.applied_corrections.append("contrast")
                 self.logger.debug("contrast_enhanced")
             
-            # 5. 智能裁剪（去除空白背景）
+            # 6. 自适应二值化（可选，对文字识别极有帮助）
+            if opts.binarize:
+                image = self._adaptive_binarize(image, opts)
+                result.applied_corrections.append("binarize")
+                self.logger.debug("binarize_applied")
+            
+            # 7. 智能裁剪（去除空白背景）
             if opts.auto_crop:
                 image, crop_info = self._auto_crop_content(image, opts)
                 if crop_info:
@@ -484,14 +503,82 @@ class ImagePreprocessor:
         
         return cropped, crop_info
     
+    def _remove_shadows(
+        self,
+        image: np.ndarray,
+        opts: PreprocessOptions,
+    ) -> np.ndarray:
+        """去除阴影 - 显著提升手写文字清晰度.
+        
+        使用形态学闭运算估计背景光照，然后除法去阴影。
+        对手机拍摄的作业照片（常有手影、台灯阴影）效果极佳。
+        
+        Args:
+            image: 输入图像
+            opts: 预处理选项
+            
+        Returns:
+            去阴影后的图像
+        """
+        # 转换到LAB，对L通道处理
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        
+        # 形态学闭运算估计背景（大核）
+        kernel_size = opts.shadow_kernel_size
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_size, kernel_size))
+        background = cv2.morphologyEx(l, cv2.MORPH_DILATE, kernel)
+        background = cv2.GaussianBlur(background, (5, 5), 0)
+        
+        # 除法去阴影
+        diff = 255 - cv2.subtract(background, l)
+        
+        # 合并回LAB
+        result_lab = cv2.merge([diff, a, b])
+        result = cv2.cvtColor(result_lab, cv2.COLOR_LAB2BGR)
+        
+        return result
+    
+    def _adaptive_binarize(
+        self,
+        image: np.ndarray,
+        opts: PreprocessOptions,
+    ) -> np.ndarray:
+        """自适应高斯阈值二值化.
+        
+        将图像转为灰度后应用自适应阈值，对手写文字有极强的增强效果。
+        注意：会丢失颜色信息，仅在纯文字识别场景使用。
+        
+        Args:
+            image: 输入图像
+            opts: 预处理选项
+            
+        Returns:
+            二值化后的彩色图像（黑白但保持3通道）
+        """
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # 自适应高斯阈值
+        binary = cv2.adaptiveThreshold(
+            gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            opts.binarize_block_size,
+            2
+        )
+        
+        # 转回3通道以便下游处理
+        result = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+        return result
+    
     def _enhance_contrast_safe(
         self,
         image: np.ndarray,
         opts: PreprocessOptions,
     ) -> np.ndarray:
-        """安全的对比度增强 - 不过度处理.
+        """对比度增强 + 锐化.
         
-        使用轻度CLAHE和锐化，避免文字失真。
+        使用CLAHE和Unsharp Masking锐化，提升文字边缘清晰度。
         
         Args:
             image: 输入图像
@@ -504,7 +591,7 @@ class ImagePreprocessor:
         lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
         
-        # 使用保守的参数
+        # CLAHE 自适应直方图均衡
         clahe = cv2.createCLAHE(
             clipLimit=opts.clahe_clip_limit,
             tileGridSize=(opts.clahe_grid_size, opts.clahe_grid_size)
@@ -515,11 +602,10 @@ class ImagePreprocessor:
         enhanced = cv2.merge([l, a, b])
         enhanced = cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
         
-        # 轻度锐化
-        kernel = np.array([[-0.5, -0.5, -0.5],
-                          [-0.5,  5,   -0.5],
-                          [-0.5, -0.5, -0.5]])
-        sharpened = cv2.filter2D(enhanced, -1, kernel)
+        # Unsharp Masking 锐化（可配置强度）
+        strength = opts.sharpen_strength
+        gaussian = cv2.GaussianBlur(enhanced, (0, 0), 3)
+        sharpened = cv2.addWeighted(enhanced, 1.0 + strength, gaussian, -strength, 0)
         
         # 限制范围
         sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)

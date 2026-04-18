@@ -562,7 +562,29 @@ async def _process_diagnosis(
                 
                 user_content_addition = ""
         
-        # 步骤2: Kimi直接诊断（根据模式选择不同提示词）
+        # 步骤2: OCR 文字提取（辅助 Vision API 提高识别准确率）
+        logger.info("ocr_start", homework_id=homework_id, mode=mode.value)
+        _update_progress(homework_id, "ocr", 35, "正在提取图片文字...")
+        
+        ocr_text = ""
+        try:
+            from src.domain.engines.ocr_engine import OCREngine, OCROptions
+            ocr_engine = OCREngine(
+                client=model_client,
+                default_options=OCROptions(preprocess=False),  # 已预处理过，不再重复
+            )
+            # 优先使用已预处理的图片进行 OCR
+            ocr_image_path = stored_proc_path if stored_proc_path and os.path.exists(stored_proc_path) else image_path
+            ocr_result = await ocr_engine.recognize(ocr_image_path, subject_hint=subject.value)
+            if ocr_result.success and ocr_result.content:
+                ocr_text = ocr_result.content
+                logger.info("ocr_success", homework_id=homework_id, content_length=len(ocr_text), confidence=ocr_result.confidence)
+            else:
+                logger.warning("ocr_failed_or_empty", homework_id=homework_id, error=ocr_result.error)
+        except Exception as e:
+            logger.warning("ocr_error", homework_id=homework_id, error=str(e))
+        
+        # 步骤3: Kimi直接诊断（根据模式选择不同提示词）
         logger.info("kimi_diagnosis_start", homework_id=homework_id, mode=mode.value)
         _update_progress(homework_id, "diagnosis", 40, "Kimi正在分析...")
         
@@ -570,6 +592,10 @@ async def _process_diagnosis(
         mode_config = MODE_PROMPTS[mode]
         system_prompt = mode_config["system_prompt"]
         user_content = mode_config["user_template"]
+        
+        # 添加 OCR 提取的文字（关键：让模型不用自己"看图识字"）
+        if ocr_text:
+            user_content += f"\n\n【图片OCR识别结果（供参考）】\n{ocr_text}\n\n请结合图片和上述OCR文字进行分析。如果OCR结果与图片有出入，以图片为准。"
         
         # 添加用户补充描述
         if parent_description:
@@ -1112,6 +1138,8 @@ async def upload_homework(
                 auto_crop=True,
                 content_margin=20,
                 white_threshold=240,
+                remove_shadows=True,
+                sharpen_strength=1.5,
             )
             preprocessor = ImagePreprocessor(preprocess_options)
             prep_result = await loop.run_in_executor(None, preprocessor.process, cropped_path)
@@ -1126,6 +1154,8 @@ async def upload_homework(
                 auto_crop=True,
                 content_margin=20,
                 white_threshold=240,
+                remove_shadows=True,
+                sharpen_strength=1.5,
             )
             preprocessor = ImagePreprocessor(preprocess_options)
             prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
