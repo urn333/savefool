@@ -17,6 +17,7 @@ from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger
 from src.infrastructure.models import create_model_client
 from src.domain.engines.ocr_engine import OCREngine, OCROptions
+from src.domain.engines.layout_analyzer import LayoutAnalyzer, diagnose_single_question
 from src.presentation.api.exceptions import (
     BusinessException,
     ErrorCode,
@@ -394,6 +395,14 @@ async def _process_diagnosis(
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
             return
+        
+        # 智能诊断模式：尝试自动分题逐题诊断（提高多题准确率）
+        if mode == DiagnosisMode.DIAGNOSIS:
+            success = await _process_per_question_diagnosis(
+                homework_id, image_path, student_id, parent_description
+            )
+            if success:
+                return
         
         # 步骤1: 本地图像预处理
         if mode == DiagnosisMode.SINGLE and selected_regions:
@@ -774,6 +783,210 @@ async def _process_diagnosis(
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
+
+
+async def _process_per_question_diagnosis(
+    homework_id: str,
+    image_path: str,
+    student_id: str,
+    parent_description: Optional[str] = None,
+) -> bool:
+    """智能诊断模式：自动检测题目并逐题裁切诊断.
+
+    返回 True 表示成功完成逐题诊断，False 表示 fallback 到整图诊断。
+    """
+    import asyncio
+    import cv2
+    import time
+    from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+
+    start_time = time.time()
+
+    try:
+        logger.info("per_question_diagnosis_start", homework_id=homework_id)
+        _update_progress(homework_id, "init", 5, "正在初始化[智能诊断]...")
+
+        # 创建模型客户端
+        try:
+            model_client = create_model_client(vision=True, timeout=180.0)
+        except ValueError as e:
+            logger.error("api_key_error", error=str(e))
+            return False
+
+        # 步骤1: 版面分析（检测题目区域）
+        _update_progress(homework_id, "layout_analysis", 10, "正在识别题目区域...")
+        analyzer = LayoutAnalyzer(timeout=30.0)
+        regions = await analyzer.detect_questions(image_path)
+
+        # 如果检测失败或只有1道题，fallback 到整图诊断
+        if not regions or len(regions) <= 1:
+            logger.info(
+                "layout_analysis_fallback",
+                homework_id=homework_id,
+                region_count=len(regions) if regions else 0,
+            )
+            return False
+
+        logger.info(
+            "layout_analysis_success",
+            homework_id=homework_id,
+            question_count=len(regions),
+        )
+
+        # 步骤2: 加载原图并逐题裁切
+        _update_progress(homework_id, "preprocessing", 15, f"正在裁切 {len(regions)} 道题目...")
+        original_image = cv2.imread(image_path)
+        if original_image is None:
+            logger.error("cv2_read_failed", homework_id=homework_id)
+            return False
+
+        h, w = original_image.shape[:2]
+        preprocess_options = PreprocessOptions(
+            correct_perspective=True,
+            correct_rotation=True,
+            remove_background=False,
+            enhance_contrast=True,
+            auto_crop=False,
+            content_margin=10,
+            white_threshold=240,
+        )
+        preprocessor = ImagePreprocessor(preprocess_options)
+        loop = asyncio.get_event_loop()
+
+        question_images = []
+        for region in regions:
+            bbox = region["bbox"]
+            x1 = int(bbox["x"] * w)
+            y1 = int(bbox["y"] * h)
+            x2 = int((bbox["x"] + bbox["width"]) * w)
+            y2 = int((bbox["y"] + bbox["height"]) * h)
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w, x2), min(h, y2)
+
+            cropped = original_image[y1:y2, x1:x2]
+            if cropped.size == 0:
+                continue
+
+            prep_result = await loop.run_in_executor(None, preprocessor.process, cropped)
+            final_image = prep_result.image if prep_result.success else cropped
+            image_base64 = preprocessor.to_base64(final_image)
+
+            question_images.append({
+                "question_id": region["question_id"],
+                "image_base64": image_base64,
+            })
+
+        if not question_images:
+            logger.warning("no_valid_question_images", homework_id=homework_id)
+            return False
+
+        # 步骤3: 逐题并行诊断（限制并发数避免限流）
+        vision_model = settings.kimi.vision_model if settings.active_model_provider == "kimi" else "kimi-k2.5"
+        semaphore = asyncio.Semaphore(3)
+        total = len(question_images)
+
+        async def _diagnose_with_semaphore(idx: int, q: dict):
+            async with semaphore:
+                progress = 20 + int((idx / total) * 65)
+                _update_progress(
+                    homework_id, "diagnosing", progress,
+                    f"正在分析第 {q['question_id']} 题 ({idx + 1}/{total})..."
+                )
+                result = await diagnose_single_question(
+                    image_base64=q["image_base64"],
+                    question_id=q["question_id"],
+                    model_client=model_client,
+                    vision_model=vision_model,
+                    parent_description=parent_description,
+                )
+                return result
+
+        tasks = [
+            _diagnose_with_semaphore(i, q)
+            for i, q in enumerate(question_images)
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # 步骤4: 合并结果
+        _update_progress(homework_id, "merging", 90, "正在合并诊断结果...")
+
+        valid_results = [r for r in results if r is not None]
+        if not valid_results:
+            logger.warning("all_per_question_diagnosis_failed", homework_id=homework_id)
+            return False
+
+        # 组装为 DIAGNOSIS 模式输出格式
+        questions_data = []
+        error_count = 0
+        for r in valid_results:
+            is_correct = r.get("is_correct", True)
+            if not is_correct:
+                error_count += 1
+            questions_data.append(r)
+
+        summary = {
+            "total_count": len(questions_data),
+            "correct_count": len(questions_data) - error_count,
+            "error_count": error_count,
+            "overall_suggestion": f"共{len(questions_data)}题，错{error_count}题。请重点关注错题涉及的知识点。",
+        }
+
+        elapsed_time = time.time() - start_time
+        logger.info(
+            "per_question_diagnosis_complete",
+            homework_id=homework_id,
+            elapsed=elapsed_time,
+            total=len(questions_data),
+            errors=error_count,
+        )
+
+        _update_progress(homework_id, "complete", 100, "诊断完成！")
+
+        # 保存结果
+        if homework_id in _homework_store:
+            _homework_store[homework_id]["status"] = HomeworkStatus.COMPLETED.value
+            _homework_store[homework_id]["completed_at"] = int(datetime.utcnow().timestamp())
+            _homework_store[homework_id]["diagnosis_mode"] = DiagnosisMode.DIAGNOSIS.value
+            _homework_store[homework_id]["diagnosis_result"] = {
+                "mode": DiagnosisMode.DIAGNOSIS.value,
+                "summary": summary,
+                "questions_detail": questions_data,
+            }
+            _homework_store[homework_id]["ocr_result"] = {
+                "content": f"共识别 {len(questions_data)} 道题目（逐题裁切诊断）",
+                "subject": "math",
+                "knowledge_points": [],
+                "confidence": 0.95,
+            }
+
+            def _extract_knowledge_point(q):
+                kps = q.get("knowledge_points", [])
+                if not kps:
+                    return "未知"
+                first_kp = kps[0]
+                return first_kp.get("name") if isinstance(first_kp, dict) else str(first_kp)
+
+            _homework_store[homework_id]["questions"] = [
+                {
+                    "question_id": generate_id("q"),
+                    "type": "unknown",
+                    "content": q.get("content", "")[:200],
+                    "student_answer": q.get("student_answer", "未识别"),
+                    "correct_answer": q.get("correct_answer", "待确认"),
+                    "is_correct": q.get("is_correct", True),
+                    "knowledge_point": _extract_knowledge_point(q),
+                    "difficulty": q.get("difficulty", "unknown"),
+                }
+                for q in questions_data
+            ]
+            _homework_store[homework_id]["error_count"] = error_count
+            _homework_store[homework_id]["total_count"] = len(questions_data)
+
+        return True
+
+    except Exception as e:
+        logger.exception("per_question_diagnosis_error", homework_id=homework_id, error=str(e))
+        return False
 
 
 @router.post(
