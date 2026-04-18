@@ -513,51 +513,53 @@ async def _process_diagnosis(
                     image_base64 = base64.b64encode(f.read()).decode("utf-8")
                 user_content_addition = ""
         else:
-            # 其他模式：正常预处理整张图片
+            # 其他模式：正常预处理整张图片（优先使用已预处理的图片）
             logger.info("preprocessing_start", homework_id=homework_id)
             _update_progress(homework_id, "preprocessing", 15, "正在预处理图像...")
             
-            try:
-                from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
-                
-                preprocess_options = PreprocessOptions(
-                    correct_perspective=True,
-                    correct_rotation=True,
-                    remove_background=False,
-                    enhance_contrast=True,
-                    auto_crop=True,
-                    content_margin=20,
-                    white_threshold=240,
-                )
-                
-                preprocessor = ImagePreprocessor(preprocess_options)
-                loop = asyncio.get_event_loop()
-                prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
-                
-                if prep_result.success:
-                    logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
-                    # 保存预处理后的图片（用于结果页展示）
-                    try:
-                        upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
-                        os.makedirs(upload_dir, exist_ok=True)
-                        proc_filename = f"{homework_id}_processed.jpg"
-                        proc_path = os.path.join(upload_dir, proc_filename)
-                        cv2.imwrite(proc_path, prep_result.image, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                        if homework_id in _homework_store:
-                            _homework_store[homework_id]["processed_image_url"] = f"/uploads/homework/{proc_filename}"
-                    except Exception as proc_err:
-                        logger.warning("save_processed_image_failed", homework_id=homework_id, error=str(proc_err))
-                    image_base64 = preprocessor.to_base64(prep_result.image)
-                else:
-                    logger.warning("preprocessing_failed", fallback="original")
+            # 检查是否已有预处理后的图片（upload 阶段已生成）
+            stored_proc_path = _homework_store.get(homework_id, {}).get("processed_image_path")
+            if stored_proc_path and os.path.exists(stored_proc_path):
+                logger.info("using_stored_processed_image", homework_id=homework_id, path=stored_proc_path)
+                try:
+                    with open(stored_proc_path, "rb") as f:
+                        image_base64 = base64.b64encode(f.read()).decode("utf-8")
+                    user_content_addition = ""
+                except Exception as e:
+                    logger.warning("read_stored_processed_image_failed", homework_id=homework_id, error=str(e))
+                    stored_proc_path = None
+            
+            if not stored_proc_path:
+                try:
+                    from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+                    
+                    preprocess_options = PreprocessOptions(
+                        correct_perspective=True,
+                        correct_rotation=True,
+                        remove_background=False,
+                        enhance_contrast=True,
+                        auto_crop=True,
+                        content_margin=20,
+                        white_threshold=240,
+                    )
+                    
+                    preprocessor = ImagePreprocessor(preprocess_options)
+                    loop = asyncio.get_event_loop()
+                    prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
+                    
+                    if prep_result.success:
+                        logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
+                        image_base64 = preprocessor.to_base64(prep_result.image)
+                    else:
+                        logger.warning("preprocessing_failed", fallback="original")
+                        with open(image_path, "rb") as f:
+                            image_base64 = base64.b64encode(f.read()).decode("utf-8")
+                except Exception as e:
+                    logger.warning("preprocessing_error", error=str(e), fallback="original")
                     with open(image_path, "rb") as f:
                         image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            except Exception as e:
-                logger.warning("preprocessing_error", error=str(e), fallback="original")
-                with open(image_path, "rb") as f:
-                    image_base64 = base64.b64encode(f.read()).decode("utf-8")
-            
-            user_content_addition = ""
+                
+                user_content_addition = ""
         
         # 步骤2: Kimi直接诊断（根据模式选择不同提示词）
         logger.info("kimi_diagnosis_start", homework_id=homework_id, mode=mode.value)
@@ -1074,16 +1076,48 @@ async def upload_homework(
     upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
     image_path = _save_upload_file(image, upload_dir)
     
-    # 创建作业记录
+    # 同步预处理图片
+    processed_image_url = None
+    try:
+        from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+        preprocess_options = PreprocessOptions(
+            correct_perspective=True,
+            correct_rotation=True,
+            remove_background=False,
+            enhance_contrast=True,
+            auto_crop=True,
+            content_margin=20,
+            white_threshold=240,
+        )
+        preprocessor = ImagePreprocessor(preprocess_options)
+        loop = asyncio.get_event_loop()
+        prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
+        
+        if prep_result.success:
+            proc_filename = f"{homework_id}_processed.jpg"
+            proc_path = os.path.join(upload_dir, proc_filename)
+            await loop.run_in_executor(None, preprocessor.save, prep_result.image, proc_path)
+            processed_image_url = f"/uploads/homework/{proc_filename}"
+            logger.info("preprocess_complete_upload", homework_id=homework_id, corrections=prep_result.applied_corrections)
+        else:
+            logger.warning("preprocess_failed_upload", homework_id=homework_id)
+    except Exception as e:
+        logger.warning("preprocess_error_upload", homework_id=homework_id, error=str(e))
+    
+    # 创建作业记录（状态为 PENDING，等待用户确认分析）
     now = int(datetime.utcnow().timestamp())
     _homework_store[homework_id] = {
         "homework_id": homework_id,
         "student_id": student_id,
         "subject": subject.value,
-        "status": HomeworkStatus.PROCESSING.value,
+        "status": HomeworkStatus.PENDING.value,
         "image_url": f"/uploads/homework/{os.path.basename(image_path)}",
+        "processed_image_url": processed_image_url,
+        "processed_image_path": proc_path if processed_image_url else None,
+        "image_path": image_path,
         "parent_description": description,
         "diagnosis_mode": mode.value,
+        "selected_regions": regions,
         "created_at": now,
         "completed_at": None,
         "error_count": 0,
@@ -1091,25 +1125,111 @@ async def upload_homework(
         "questions": [],
     }
     
-    # 启动后台诊断任务
-    background_tasks.add_task(_process_diagnosis, homework_id, image_path, student_id, mode, regions, description)
-    
     logger.info(
         "homework_created",
         homework_id=homework_id,
         student_id=student_id,
         mode=mode.value,
+        preprocessed=bool(processed_image_url),
     )
     
     return BaseResponse(
         code=0,
         message="success",
-        data=HomeworkUploadResponse(
-            homework_id=homework_id,
-            status=HomeworkStatus.PROCESSING,
-            created_at=now,
-            estimated_time=30,
-        ).model_dump()
+        data={
+            "homework_id": homework_id,
+            "status": HomeworkStatus.PENDING.value,
+            "image_url": f"/uploads/homework/{os.path.basename(image_path)}",
+            "processed_image_url": processed_image_url,
+            "created_at": now,
+            "estimated_time": 30,
+        }
+    )
+
+
+@router.post(
+    "/{homework_id}/analyze",
+    response_model=BaseResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="启动分析",
+    description="对已上传并预处理的作业启动AI诊断分析",
+)
+async def start_analysis(
+    homework_id: str,
+    background_tasks: BackgroundTasks,
+    mode: DiagnosisMode = Form(DiagnosisMode.DIAGNOSIS, description="诊断模式"),
+    description: Optional[str] = Form(None, max_length=140, description="家长描述"),
+    selected_regions: Optional[str] = Form(None, description="框选区域JSON（单题模式用）"),
+) -> BaseResponse:
+    """启动作业分析.
+    
+    对已上传并预处理的作业启动后台AI诊断任务。
+    
+    Args:
+        homework_id: 作业ID
+        background_tasks: 后台任务
+        mode: 诊断模式
+        description: 家长描述（可选，覆盖上传时的描述）
+        selected_regions: 框选区域JSON（可选，覆盖上传时的区域）
+        
+    Returns:
+        启动成功响应
+        
+    Raises:
+        NotFoundException: 作业不存在
+        ValidationException: 作业状态不允许启动分析
+    """
+    if homework_id not in _homework_store:
+        raise NotFoundException(resource_type="作业", resource_id=homework_id)
+    
+    hw = _homework_store[homework_id]
+    
+    # 只允许 PENDING 状态的作业启动分析
+    if hw["status"] not in (HomeworkStatus.PENDING.value, HomeworkStatus.FAILED.value):
+        raise ValidationException(message=f"当前作业状态为 {hw['status']}，无法启动分析")
+    
+    # 更新参数（如果前端传了新的）
+    if description is not None:
+        hw["parent_description"] = description
+    if mode:
+        hw["diagnosis_mode"] = mode.value
+    
+    regions = hw.get("selected_regions")
+    if selected_regions:
+        try:
+            regions = json.loads(selected_regions)
+            hw["selected_regions"] = regions
+        except json.JSONDecodeError:
+            raise ValidationException(message="框选区域格式错误")
+    
+    # 更新状态为处理中
+    hw["status"] = HomeworkStatus.PROCESSING.value
+    hw["error_message"] = None
+    
+    # 启动后台诊断任务
+    background_tasks.add_task(
+        _process_diagnosis,
+        homework_id,
+        hw["image_path"],
+        hw["student_id"],
+        DiagnosisMode(hw["diagnosis_mode"]),
+        regions,
+        hw.get("parent_description"),
+    )
+    
+    logger.info(
+        "analysis_started",
+        homework_id=homework_id,
+        mode=hw["diagnosis_mode"],
+    )
+    
+    return BaseResponse(
+        code=0,
+        message="分析已启动",
+        data={
+            "homework_id": homework_id,
+            "status": HomeworkStatus.PROCESSING.value,
+        }
     )
 
 

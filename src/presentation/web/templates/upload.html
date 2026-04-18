@@ -276,9 +276,38 @@
         </div>
         
         <button type="submit" class="btn btn-primary" id="submitBtn" style="width: 100%;">
-            🚀 开始分析
+            📤 上传并预览
         </button>
     </form>
+</div>
+
+<!-- 预处理预览卡片 -->
+<div class="card" style="display: none;" id="previewCard">
+    <h2 class="card-title">
+        <span>✨</span>
+        预处理结果预览
+    </h2>
+    <p style="color: #666; margin-bottom: 16px; font-size: 0.9rem;">
+        系统已对图片进行透视校正、对比度增强和智能裁剪。确认效果满意后再启动AI分析。
+    </p>
+    <div class="image-comparison" id="preprocessComparison">
+        <div class="image-comparison-item">
+            <img id="originalPreview" src="" alt="原图" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e0e0e0;">
+            <div class="image-comparison-label">📷 原始上传图片</div>
+        </div>
+        <div class="image-comparison-item">
+            <img id="processedPreview" src="" alt="预处理后" style="max-width: 100%; max-height: 300px; border-radius: 8px; border: 1px solid #e0e0e0;">
+            <div class="image-comparison-label">✨ 预处理后（传给AI的图片）</div>
+        </div>
+    </div>
+    <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button type="button" class="btn btn-secondary" id="backBtn" style="flex: 1;">
+            ↩ 返回修改
+        </button>
+        <button type="button" class="btn btn-primary" id="startAnalysisBtn" style="flex: 2;">
+            🚀 开始分析
+        </button>
+    </div>
 </div>
 
 <div class="card" style="display: none;" id="progressCard">
@@ -290,7 +319,7 @@
         <div class="progress-bar">
             <div class="progress-fill" id="progressFill" style="width: 0%;"></div>
         </div>
-        <div class="progress-text" id="progressText">正在上传...</div>
+        <div class="progress-text" id="progressText">正在分析...</div>
     </div>
     <p style="text-align: center; color: #666; margin-top: 16px;">
         预计还需要 <span id="timeRemaining">30</span> 秒
@@ -491,7 +520,11 @@ document.getElementById('description').addEventListener('input', function() {
     }
 });
 
-// 表单提交
+// 全局变量存储当前作业ID和表单数据
+let currentHomeworkId = null;
+let currentFormData = null;
+
+// 表单提交（第一步：上传并预览）
 document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
@@ -503,7 +536,6 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     // 单题模式必须选择区域
     if (selectedMode === 'single' && !selectedRegion) {
         showAlert('请先框选要分析的题目区域', 'error');
-        // 显示工具栏
         selectionToolbar.classList.add('show');
         if (!cropper) {
             initCropper();
@@ -512,9 +544,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     }
     
     const submitBtn = document.getElementById('submitBtn');
-    const progressCard = document.getElementById('progressCard');
-    
-    showLoading(submitBtn, '上传中...');
+    showLoading(submitBtn, '上传并预处理中...');
     
     // 构建表单数据
     const formData = new FormData();
@@ -534,15 +564,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
     }
     
     try {
-        // 显示进度卡片
-        progressCard.style.display = 'block';
-        submitBtn.style.display = 'none';
-        
-        const progressFill = document.getElementById('progressFill');
-        const progressText = document.getElementById('progressText');
-        const timeRemaining = document.getElementById('timeRemaining');
-        
-        // 发送请求
+        // 发送上传请求
         const response = await fetch(`${API_BASE}/homework`, {
             method: 'POST',
             body: formData,
@@ -554,12 +576,95 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             throw new Error(result.message);
         }
         
-        const homeworkId = result.data.homework_id;
+        currentHomeworkId = result.data.homework_id;
+        currentFormData = {
+            mode: selectedMode,
+            description: description,
+            selected_regions: selectedMode === 'single' && selectedRegion ? JSON.stringify([selectedRegion]) : null,
+        };
         
-        // 开始轮询真实进度
+        // 隐藏表单，显示预处理预览
+        document.getElementById('uploadForm').style.display = 'none';
+        hideLoading(submitBtn);
+        submitBtn.style.display = 'block';
+        
+        const previewCard = document.getElementById('previewCard');
+        previewCard.style.display = 'block';
+        
+        // 填充预览图片
+        const originalUrl = result.data.image_url;
+        const processedUrl = result.data.processed_image_url;
+        
+        document.getElementById('originalPreview').src = originalUrl;
+        if (processedUrl) {
+            document.getElementById('processedPreview').src = processedUrl;
+        } else {
+            document.getElementById('processedPreview').src = originalUrl;
+            document.getElementById('processedPreview').nextElementSibling.textContent = '⚠️ 预处理失败，将使用原图分析';
+        }
+        
+        showAlert('图片上传并预处理完成，请确认效果', 'success');
+        
+    } catch (error) {
+        hideLoading(submitBtn);
+        showAlert(error.message || '上传失败，请重试', 'error');
+    }
+});
+
+// 返回修改按钮
+document.getElementById('backBtn').addEventListener('click', () => {
+    document.getElementById('previewCard').style.display = 'none';
+    document.getElementById('uploadForm').style.display = 'block';
+});
+
+// 开始分析按钮（第二步：启动AI诊断）
+document.getElementById('startAnalysisBtn').addEventListener('click', async () => {
+    if (!currentHomeworkId) {
+        showAlert('作业ID丢失，请重新上传', 'error');
+        return;
+    }
+    
+    const previewCard = document.getElementById('previewCard');
+    const progressCard = document.getElementById('progressCard');
+    const startBtn = document.getElementById('startAnalysisBtn');
+    
+    showLoading(startBtn, '启动中...');
+    
+    try {
+        // 构建启动分析的表单数据
+        const formData = new FormData();
+        formData.append('mode', currentFormData.mode);
+        if (currentFormData.description) {
+            formData.append('description', currentFormData.description);
+        }
+        if (currentFormData.selected_regions) {
+            formData.append('selected_regions', currentFormData.selected_regions);
+        }
+        
+        const response = await fetch(`${API_BASE}/homework/${currentHomeworkId}/analyze`, {
+            method: 'POST',
+            body: formData,
+        });
+        
+        const result = await response.json();
+        
+        if (result.code !== 0) {
+            throw new Error(result.message);
+        }
+        
+        // 隐藏预览，显示进度
+        previewCard.style.display = 'none';
+        progressCard.style.display = 'block';
+        hideLoading(startBtn);
+        
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
+        const timeRemaining = document.getElementById('timeRemaining');
+        
+        // 开始轮询进度
         let pollingInterval = setInterval(async () => {
             try {
-                const progressResp = await fetch(`${API_BASE}/homework/${homeworkId}/progress`);
+                const progressResp = await fetch(`${API_BASE}/homework/${currentHomeworkId}/progress`);
                 const progressData = await progressResp.json();
                 
                 if (progressData.code === 0) {
@@ -567,23 +672,21 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
                     progressFill.style.width = `${data.progress}%`;
                     progressText.textContent = data.message;
                     
-                    // 估算剩余时间
                     const remaining = Math.max(1, Math.ceil((100 - data.progress) / 5));
                     timeRemaining.textContent = remaining;
                     
-                    // 检查是否完成或失败
                     if (data.status === 'completed' || data.progress >= 100) {
                         clearInterval(pollingInterval);
                         progressFill.style.width = '100%';
                         progressText.textContent = '分析完成！';
                         
-                        // 跳转到结果页面
                         setTimeout(() => {
-                            window.location.href = `/web/result/${homeworkId}`;
+                            window.location.href = `/web/result/${currentHomeworkId}`;
                         }, 500);
                     } else if (data.status === 'failed') {
                         clearInterval(pollingInterval);
-                        throw new Error(data.message || '分析失败');
+                        progressText.textContent = '分析失败';
+                        showAlert(data.message || '分析失败', 'error');
                     }
                 }
             } catch (e) {
@@ -591,16 +694,14 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             }
         }, 1000);
         
-        // 设置最大轮询时间（90秒）
+        // 最大轮询时间90秒
         setTimeout(() => {
             clearInterval(pollingInterval);
         }, 90000);
         
     } catch (error) {
-        hideLoading(submitBtn);
-        submitBtn.style.display = 'block';
-        progressCard.style.display = 'none';
-        showAlert(error.message || '上传失败，请重试', 'error');
+        hideLoading(startBtn);
+        showAlert(error.message || '启动分析失败，请重试', 'error');
     }
 });
 {% endblock %}
