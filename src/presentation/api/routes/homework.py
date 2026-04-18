@@ -377,6 +377,7 @@ async def _process_diagnosis(
     import asyncio
     import json
     import re
+    import os
     start_time = time.time()
     
     # 初始化变量（避免后续条件分支中未定义）
