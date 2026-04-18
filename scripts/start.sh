@@ -21,7 +21,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # 检查是否已在运行
-PID=$(pgrep -f "uvicorn.*savefool" || echo "")
+PID=$(pgrep -f "uvicorn.*main:app" || echo "")
 if [ -n "$PID" ]; then
     echo -e "${YELLOW}⚠️  服务已在运行 (PID: $PID)${NC}"
     echo ""
@@ -40,9 +40,9 @@ fi
 
 # 检查 API Key 配置
 echo -e "${BLUE}📋 检查配置...${NC}"
-ACTIVE_PROVIDER=$(grep "^active_model_provider=" .env | cut -d'=' -f2)
-KIMI_KEY=$(grep "^kimi_api_key=" .env | cut -d'=' -f2)
-OPENAI_KEY=$(grep "^openai_api_key=" .env | cut -d'=' -f2)
+ACTIVE_PROVIDER=$(grep "^ACTIVE_MODEL_PROVIDER=" .env | cut -d'=' -f2)
+KIMI_KEY=$(grep "^KIMI_API_KEY=" .env | cut -d'=' -f2)
+OPENAI_KEY=$(grep "^OPENAI_API_KEY=" .env | cut -d'=' -f2)
 
 echo "  当前模型提供商: $ACTIVE_PROVIDER"
 
@@ -51,7 +51,7 @@ if [ "$ACTIVE_PROVIDER" = "kimi" ]; then
         echo -e "${YELLOW}⚠️  警告: Kimi API Key 未配置${NC}"
         echo ""
         echo "请编辑 .env 文件，设置你的 API Key:"
-        echo "  kimi_api_key=sk-kimi-xxxxxxxx"
+        echo "  KIMI_API_KEY=sk-kimi-xxxxxxxx"
         echo ""
         echo -e "${YELLOW}服务将以模拟模式启动（无法进行真实AI诊断）${NC}"
         echo ""
@@ -92,7 +92,7 @@ sleep 3
 
 # 检查启动是否成功
 if curl -s http://localhost:8000/health > /dev/null 2>&1; then
-    PID=$(pgrep -f "uvicorn.*savefool" | head -1)
+    PID=$(pgrep -f "uvicorn.*main:app" | head -1)
     echo ""
     echo -e "${GREEN}========================================${NC}"
     echo -e "${GREEN}✅ 服务启动成功!${NC}"

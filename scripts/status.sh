@@ -19,7 +19,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # 检查进程
-PIDS=$(pgrep -f "uvicorn.*savefool" || echo "")
+PIDS=$(pgrep -f "uvicorn.*main:app" || echo "")
 
 if [ -n "$PIDS" ]; then
     echo -e "${GREEN}✅ 服务运行中${NC}"
@@ -71,18 +71,18 @@ echo ""
 # 显示配置信息
 echo -e "${BLUE}当前配置:${NC}"
 if [ -f ".env" ]; then
-    ACTIVE_PROVIDER=$(grep "^active_model_provider=" .env | cut -d'=' -f2)
+    ACTIVE_PROVIDER=$(grep "^ACTIVE_MODEL_PROVIDER=" .env | cut -d'=' -f2)
     echo "  模型提供商: ${ACTIVE_PROVIDER:-未设置}"
     
     if [ "$ACTIVE_PROVIDER" = "kimi" ]; then
-        KIMI_KEY=$(grep "^kimi_api_key=" .env | cut -d'=' -f2)
+        KIMI_KEY=$(grep "^KIMI_API_KEY=" .env | cut -d'=' -f2)
         if [ -n "$KIMI_KEY" ] && [ "$KIMI_KEY" != "your_kimi_code_api_key_here" ]; then
             echo "  API Key: ✅ 已配置"
         else
             echo "  API Key: ❌ 未配置"
         fi
     elif [ "$ACTIVE_PROVIDER" = "openai" ]; then
-        OPENAI_KEY=$(grep "^openai_api_key=" .env | cut -d'=' -f2)
+        OPENAI_KEY=$(grep "^OPENAI_API_KEY=" .env | cut -d'=' -f2)
         if [ -n "$OPENAI_KEY" ] && [ "$OPENAI_KEY" != "your_openai_api_key" ]; then
             echo "  API Key: ✅ 已配置"
         else

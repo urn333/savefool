@@ -304,17 +304,25 @@ JSON格式：
     
     DiagnosisMode.SINGLE: {
         "name": "单题深度分析",
-        "system_prompt": """你是一位专业的数学辅导老师。用户指定了图片中的某一道题，请针对该题进行深度分析。
+        "system_prompt": """你是一位专业的数学辅导老师。用户通过框选指定了图片中的某一道题，请针对该题进行深度分析。
 
-1. **识别指定题目**：只分析用户框选的题目
-2. **完整解析**：题目分析、解题步骤、知识点讲解、易错点提醒
-3. **拓展延伸**：提供类似题目或变形题思路
+【重要】框选坐标说明：
+- 用户会在图片上框选一个矩形区域来指定要分析的题目
+- 坐标格式：{"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.3}
+- x, y 是框选区域左上角的相对坐标（0-1范围，相对于原图宽高的比例）
+- width, height 是框选区域的相对宽高（0-1范围）
+- 你需要根据这些坐标，定位到图片中对应的题目进行分析
+
+任务要求：
+1. **定位题目**：根据用户提供的框选坐标，找到对应的题目
+2. **完整解析**：只分析该指定题目的内容、学生答案、正误判断
+3. **深度讲解**：题目分析、解题步骤、知识点、易错点、拓展延伸
 
 请严格按照以下JSON格式返回结果：
 {
     "target_question": {
         "question_id": 1,
-        "content": "题目内容",
+        "content": "题目内容（框选区域内的完整题目文字）",
         "student_answer": "学生答案（如果有）",
         "correct_answer": "正确答案"
     },
@@ -370,6 +378,9 @@ async def _process_diagnosis(
     import re
     start_time = time.time()
     
+    # 初始化变量（避免后续条件分支中未定义）
+    user_content_addition = ""
+    
     try:
         logger.info("diagnosis_start", homework_id=homework_id, student_id=student_id, mode=mode.value)
         _update_progress(homework_id, "init", 5, f"正在初始化[{MODE_PROMPTS[mode]['name']}]...")
@@ -385,37 +396,136 @@ async def _process_diagnosis(
             return
         
         # 步骤1: 本地图像预处理
-        logger.info("preprocessing_start", homework_id=homework_id)
-        _update_progress(homework_id, "preprocessing", 15, "正在预处理图像...")
-        
-        try:
-            from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+        if mode == DiagnosisMode.SINGLE and selected_regions:
+            # 单题模式：根据框选坐标裁切题目区域，然后对裁切区域进行预处理
+            logger.info("single_mode_crop_start", homework_id=homework_id)
+            _update_progress(homework_id, "preprocessing", 15, "单题模式：正在裁切选定区域...")
             
-            preprocess_options = PreprocessOptions(
-                correct_perspective=True,
-                correct_rotation=True,
-                remove_background=False,
-                enhance_contrast=True,
-                auto_crop=True,
-                content_margin=20,
-                white_threshold=240,
-            )
-            
-            preprocessor = ImagePreprocessor(preprocess_options)
-            loop = asyncio.get_event_loop()
-            prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
-            
-            if prep_result.success:
-                logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
-                image_base64 = preprocessor.to_base64(prep_result.image)
-            else:
-                logger.warning("preprocessing_failed", fallback="original")
+            try:
+                import cv2
+                from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+                
+                # 加载原图
+                original_image = cv2.imread(image_path)
+                h, w = original_image.shape[:2]
+                
+                # 获取框选区域（相对坐标）
+                region = selected_regions[0]
+                x_ratio = region.get('x', 0)
+                y_ratio = region.get('y', 0)
+                w_ratio = region.get('width', 0)
+                h_ratio = region.get('height', 0)
+                
+                # 转换为像素坐标
+                x1 = int(x_ratio * w)
+                y1 = int(y_ratio * h)
+                x2 = int((x_ratio + w_ratio) * w)
+                y2 = int((y_ratio + h_ratio) * h)
+                
+                # 确保坐标在有效范围内
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(w, x2), min(h, y2)
+                
+                # 裁切题目区域
+                cropped = original_image[y1:y2, x1:x2]
+                
+                logger.info("image_cropped", 
+                    homework_id=homework_id,
+                    original_size=(w, h),
+                    crop_box=(x1, y1, x2, y2),
+                    cropped_size=(cropped.shape[1], cropped.shape[0]))
+                
+                # 对裁切区域进行预处理
+                preprocess_options = PreprocessOptions(
+                    correct_perspective=True,
+                    correct_rotation=True,
+                    remove_background=False,
+                    enhance_contrast=True,
+                    auto_crop=False,  # 已经裁切过了，不再自动裁剪
+                    content_margin=10,
+                    white_threshold=240,
+                )
+                
+                preprocessor = ImagePreprocessor(preprocess_options)
+                loop = asyncio.get_event_loop()
+                prep_result = await loop.run_in_executor(None, preprocessor.process, cropped)
+                
+                # 获取最终要传给API的图片
+                if prep_result.success:
+                    final_image = prep_result.image
+                    logger.info("crop_preprocess_complete", 
+                        homework_id=homework_id,
+                        corrections=prep_result.applied_corrections)
+                else:
+                    final_image = cropped
+                    logger.warning("crop_preprocess_failed", homework_id=homework_id)
+                
+                # 保存裁切后的图片到 uploads/homework/ 目录（用于调试）
+                try:
+                    import os
+                    upload_dir = os.path.join(settings.UPLOAD_DIR or "./uploads", "homework")
+                    os.makedirs(upload_dir, exist_ok=True)
+                    # 使用函数开头已导入的 datetime，避免局部变量冲突
+                    timestamp_str = datetime.now().strftime('%H%M%S')
+                    crop_filename = f"{homework_id}_crop_{timestamp_str}.jpg"
+                    crop_path = os.path.join(upload_dir, crop_filename)
+                    cv2.imwrite(crop_path, final_image, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                    logger.info("cropped_image_saved", 
+                        homework_id=homework_id,
+                        path=crop_path,
+                        size=(final_image.shape[1], final_image.shape[0]))
+                except Exception as save_err:
+                    logger.warning("save_cropped_image_failed", 
+                        homework_id=homework_id, 
+                        error=str(save_err))
+                
+                # 转换为base64传给API
+                image_base64 = preprocessor.to_base64(final_image)
+                
+                # 更新提示词，告诉AI这是裁切后的单题图片
+                user_content_addition = f"\n\n【题目图片说明】这是一道数学题的特写图片，请对这道题进行深度分析。图片中只包含这一道题目。"
+                
+            except Exception as e:
+                logger.error("single_mode_crop_error", homework_id=homework_id, error=str(e))
+                # 出错则回退到原图
                 with open(image_path, "rb") as f:
                     image_base64 = base64.b64encode(f.read()).decode("utf-8")
-        except Exception as e:
-            logger.warning("preprocessing_error", error=str(e), fallback="original")
-            with open(image_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode("utf-8")
+                user_content_addition = ""
+        else:
+            # 其他模式：正常预处理整张图片
+            logger.info("preprocessing_start", homework_id=homework_id)
+            _update_progress(homework_id, "preprocessing", 15, "正在预处理图像...")
+            
+            try:
+                from src.domain.engines.image_preprocessor import ImagePreprocessor, PreprocessOptions
+                
+                preprocess_options = PreprocessOptions(
+                    correct_perspective=True,
+                    correct_rotation=True,
+                    remove_background=False,
+                    enhance_contrast=True,
+                    auto_crop=True,
+                    content_margin=20,
+                    white_threshold=240,
+                )
+                
+                preprocessor = ImagePreprocessor(preprocess_options)
+                loop = asyncio.get_event_loop()
+                prep_result = await loop.run_in_executor(None, preprocessor.process, image_path)
+                
+                if prep_result.success:
+                    logger.info("preprocessing_complete", corrections=prep_result.applied_corrections)
+                    image_base64 = preprocessor.to_base64(prep_result.image)
+                else:
+                    logger.warning("preprocessing_failed", fallback="original")
+                    with open(image_path, "rb") as f:
+                        image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            except Exception as e:
+                logger.warning("preprocessing_error", error=str(e), fallback="original")
+                with open(image_path, "rb") as f:
+                    image_base64 = base64.b64encode(f.read()).decode("utf-8")
+            
+            user_content_addition = ""
         
         # 步骤2: Kimi直接诊断（根据模式选择不同提示词）
         logger.info("kimi_diagnosis_start", homework_id=homework_id, mode=mode.value)
@@ -430,10 +540,19 @@ async def _process_diagnosis(
         if parent_description:
             user_content += f"\n\n用户补充说明：{parent_description}"
         
-        # 单题模式：添加框选区域信息
-        if mode == DiagnosisMode.SINGLE and selected_regions:
-            user_content += f"\n\n用户框选区域：{json.dumps(selected_regions, ensure_ascii=False)}"
-            user_content += "\n请只分析框选区域内的题目，忽略其他区域。"
+        # 添加单题模式的额外提示（裁切后的题目图片说明）
+        if user_content_addition:
+            user_content += user_content_addition
+        
+        # 单题模式（未裁切成功时）：添加框选区域信息作为fallback
+        if mode == DiagnosisMode.SINGLE and selected_regions and not user_content_addition:
+            region = selected_regions[0]  # 取第一个框选区域
+            x, y, w, h = region.get('x', 0), region.get('y', 0), region.get('width', 0), region.get('height', 0)
+            user_content += f"\n\n【框选区域坐标】"
+            user_content += f"\n- 左上角：x={x:.3f}, y={y:.3f}（相对于原图左上角的比例）"
+            user_content += f"\n- 区域大小：宽={w:.3f}, 高={h:.3f}（相对于原图宽高的比例）"
+            user_content += f"\n- 该区域位于图片的{('左上' if x < 0.5 and y < 0.5 else '右上' if x >= 0.5 and y < 0.5 else '左下' if x < 0.5 and y >= 0.5 else '右下')}部分"
+            user_content += f"\n\n请根据上述坐标，定位到图片中对应位置的题目进行分析。只分析该框选区域内的题目内容，忽略其他题目。"
         
         _update_progress(homework_id, "analyzing", 70, "AI正在深度分析...")
         

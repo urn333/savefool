@@ -42,3 +42,8 @@ build/
 # Test images
 data/*.jpg
 !data/.gitkeep
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+!uploads/homework/.gitkeep

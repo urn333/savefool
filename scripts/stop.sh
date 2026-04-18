@@ -17,7 +17,7 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # 查找进程
-PIDS=$(pgrep -f "uvicorn.*savefool" || echo "")
+PIDS=$(pgrep -f "uvicorn.*main:app" || echo "")
 
 if [ -z "$PIDS" ]; then
     echo -e "${YELLOW}⚠️  服务未在运行${NC}"
@@ -39,15 +39,15 @@ done
 sleep 2
 
 # 检查是否还有残留进程
-REMAINING=$(pgrep -f "uvicorn.*savefool" || echo "")
+REMAINING=$(pgrep -f "uvicorn.*main:app" || echo "")
 if [ -n "$REMAINING" ]; then
     echo -e "${YELLOW}⚠️  强制终止残留进程...${NC}"
-    pkill -9 -f "uvicorn.*savefool" 2>/dev/null || true
+    pkill -9 -f "uvicorn.*main:app" 2>/dev/null || true
     sleep 1
 fi
 
 # 最终检查
-if pgrep -f "uvicorn.*savefool" > /dev/null 2>&1; then
+if pgrep -f "uvicorn.*main:app" > /dev/null 2>&1; then
     echo -e "${RED}❌ 停止失败${NC}"
     exit 1
 else

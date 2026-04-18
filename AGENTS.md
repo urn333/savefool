@@ -2,8 +2,7 @@
 
 > **项目**: AI助教系统 (AI Tutor System)  
 > **语言**: Python 3.11+  
-> **文档版本**: v1.1  
-> **最后更新**: 2024年
+> **最后更新**: 2026-04-18
 
 ---
 
@@ -62,14 +61,15 @@ AI助教系统是一个面向中学生（13-16岁）的AI驱动作业诊断平�
 |------|----------|----------|
 | **后端框架** | FastAPI | >=0.109.0 |
 | **ASGI服务器** | Uvicorn | >=0.27.0 |
-| **数据库** | SQLite + SQLAlchemy | >=2.0.0 |
+| **数据库** | SQLite + SQLAlchemy 2.0 | >=2.0.0 |
 | **数据库迁移** | Alembic | >=1.13.0 |
 | **数据验证** | Pydantic + Pydantic-Settings | >=2.6.0 |
-| **AI模型** | OpenAI, Kimi, Gemini, Anthropic, DeepSeek, Ollama | - |
-| **OCR** | 百度OCR API, Gemini Vision | - |
+| **AI模型** | OpenAI, Anthropic, Kimi, Gemini, DeepSeek, Ollama, 百度OCR | - |
 | **图像处理** | Pillow, OpenCV, NumPy | - |
 | **异步** | asyncio, aiohttp, aiosqlite | - |
 | **日志** | structlog | >=24.1.0 |
+
+> **注意**: 本项目不使用 `pyproject.toml`、`setup.py` 或 `setup.cfg`，依赖通过 `requirements.txt` 和 `requirements-dev.txt` 管理。
 
 ---
 
@@ -87,41 +87,43 @@ savefool/
 │   ├── DEVELOPMENT_PLAN.md            # 开发计划（Phase规划）
 │   └── *.xlsx                         # 追踪表（任务/用例/矩阵）
 │
-├── src/                               # 源代码
+├── src/                               # 源代码（~17K行）
 │   ├── __init__.py
 │   ├── core/                          # 核心工具类
 │   ├── presentation/                  # 表现层
 │   │   ├── api/                       # FastAPI应用
-│   │   │   ├── main.py               # 应用主入口
-│   │   │   ├── schemas.py            # Pydantic模型
-│   │   │   ├── exceptions.py         # 异常处理
+│   │   │   ├── main.py               # 应用主入口（ lifespan + 中间件 + 路由注册）
+│   │   │   ├── schemas.py            # Pydantic模型（所有API的Request/Response）
+│   │   │   ├── exceptions.py         # 全局异常处理
 │   │   │   ├── run.py                # 启动脚本
 │   │   │   └── routes/               # API路由
-│   │   │       ├── homework.py       # 作业管理
+│   │   │       ├── homework.py       # 作业管理（上传、查询）
 │   │   │       ├── diagnosis.py      # 诊断接口
 │   │   │       ├── variant.py        # 变形题接口
 │   │   │       └── statistics.py     # 统计接口
 │   │   └── web/                       # Web界面（Jinja2模板）
 │   │       ├── static/               # 静态资源
 │   │       └── templates/            # HTML模板
+│   │           ├── base.html
 │   │           ├── upload.html
 │   │           ├── result.html
 │   │           └── statistics.html
-│   ├── application/                   # 应用层（服务编排）
-│   ├── domain/                        # 领域层
+│   ├── application/                   # 应用层（服务编排）—— 当前为空
+│   ├── domain/                        # 领域层（核心代码）
 │   │   ├── __init__.py
-│   │   ├── engines/                   # 核心引擎
-│   │   │   ├── diagnosis_engine.py    # 诊断流程引擎
+│   │   ├── engines/                   # 核心引擎（~8.5K行）
+│   │   │   ├── diagnosis_engine.py    # 诊断流程引擎（90秒闭环主控）
 │   │   │   ├── arbitration_engine.py  # 多模型仲裁引擎
 │   │   │   ├── variant_generator.py   # 变形题生成引擎
 │   │   │   ├── variant_validator.py   # 变形题验证
+│   │   │   ├── variant_credibility.py # 变形题可信度评分
 │   │   │   ├── ocr_engine.py         # OCR引擎
 │   │   │   ├── image_preprocessor.py  # 图像预处理
 │   │   │   ├── error_detection.py     # 错误检测
 │   │   │   ├── error_attribution.py   # 错误归因
 │   │   │   ├── layered_diagnosis.py   # 分层诊断
 │   │   │   ├── result_fusion.py       # 结果融合
-│   │   │   ├── model_schedulers.py    # 模型调度器
+│   │   │   ├── model_schedulers.py    # 模型调度器（A/B/C三模型）
 │   │   │   ├── parallel_coordinator.py # 并行协调器
 │   │   │   ├── explanation_generator.py # 解释生成
 │   │   │   ├── diagnosis_assembler.py # 诊断组装
@@ -130,7 +132,7 @@ savefool/
 │   │   │       ├── numeric_strategy.py
 │   │   │       ├── inverse_strategy.py
 │   │   │       └── context_strategy.py
-│   │   ├── memory/                    # 记忆系统（OpenHarness风格）
+│   │   ├── memory/                    # 记忆系统（OpenHarness风格，~4K行）
 │   │   │   ├── memory_manager.py      # 记忆管理器
 │   │   │   ├── profile_memory.py      # Profile记忆（长期认知画像）
 │   │   │   ├── episodic_memory.py     # Episodic记忆（作业事件流）
@@ -143,30 +145,29 @@ savefool/
 │   │   │       ├── executor.py
 │   │   │       ├── compaction.py
 │   │   │       └── jobs.py
-│   │   ├── models/                    # 领域模型
-│   │   │   ├── base.py               # 基础模型类
+│   │   ├── models/                    # 领域模型（Pydantic/BaseModel）
+│   │   │   ├── base.py               # 基础模型类（含generate_id）
 │   │   │   ├── diagnosis.py          # 诊断相关模型
 │   │   │   ├── variant.py            # 变形题模型
 │   │   │   ├── memory.py             # 记忆模型
 │   │   │   └── arbitration.py        # 仲裁模型
-│   │   ├── services/                  # 领域服务
 │   │   └── exceptions.py              # 领域异常
 │   └── infrastructure/                # 基础设施层
 │       ├── __init__.py
-│       ├── config.py                  # 配置管理（Pydantic-Settings）
-│       ├── logging.py                 # 日志配置（structlog）
-│       ├── db/                        # ORM模型
-│       │   ├── base.py               # SQLAlchemy基类
-│       │   ├── student.py            # 学生表
-│       │   ├── homework.py           # 作业表
-│       │   ├── answer.py             # 答案表
-│       │   ├── variant.py            # 变形题表
-│       │   ├── knowledge.py          # 知识点表
-│       │   ├── cognitive_gap.py      # 认知缺口表
-│       │   ├── parent.py             # 家长描述表
+│       ├── config.py                  # 配置管理（Pydantic-Settings，~723行）
+│       ├── logging.py                 # 结构化日志（structlog，~285行）
+│       ├── db/                        # ORM模型（SQLAlchemy 2.0）
+│       │   ├── base.py               # DeclarativeBase基类
+│       │   ├── student.py            # 学生表 + 认知画像表
+│       │   ├── homework.py           # 作业表 + 题目表 + 作业分析表
+│       │   ├── answer.py             # 学生答案表 + 答题轨迹表 + 错题诊断表 + 诊断路径表
+│       │   ├── variant.py            # 变形题表 + 变形题答案表
+│       │   ├── knowledge.py          # 知识点表 + 知识依赖表 + 学生知识掌握度表 + 概念误解表
+│       │   ├── cognitive_gap.py      # 认知缺口表 + 缺口证据表
+│       │   ├── parent.py             # 家长描述表 + 描述解析表
 │       │   └── enums.py              # 枚举定义
 │       ├── models/                    # AI模型客户端
-│       │   ├── base.py               # 模型基类
+│       │   ├── base.py               # 模型客户端抽象基类（Message/ModelResponse/Role）
 │       │   ├── openai_client.py      # OpenAI客户端
 │       │   ├── gemini_client.py      # Gemini客户端
 │       │   ├── kimi_client.py        # Kimi客户端
@@ -182,39 +183,47 @@ savefool/
 │           └── repository.py         # 仓库接口
 │
 ├── tests/                             # 测试代码
-│   ├── conftest.py                    # Pytest配置和Fixtures
-│   ├── unit/                          # 单元测试（60%）
-│   │   ├── test_*.py                  # 各模块单元测试
-│   │   └── domain/                    # 领域层测试
-│   ├── integration/                   # 集成测试（30%）
-│   ├── e2e/                           # E2E测试（10%）
-│   ├── test_domain/                   # 领域模型测试
+│   ├── conftest.py                    # Pytest配置和全局Fixtures（含完整SQLite DDL）
+│   ├── unit/                          # 单元测试
+│   │   └── domain/engines/            # 各引擎单元测试
+│   ├── integration/                   # 集成测试
+│   │   ├── test_diagnosis_flow.py
+│   │   └── test_variant_flow.py
+│   ├── test_domain/                   # 领域模型/异常测试
 │   ├── test_infrastructure/           # 基础设施测试
-│   └── fixtures/                      # 测试数据
+│   ├── e2e/                           # E2E测试（当前为空）
+│   └── fixtures/                      # 测试数据工厂
 │       ├── problem_data.py
+│       ├── model_results.py
 │       ├── variant_fixtures.py
 │       └── memory_data.py
 │
 ├── alembic/                           # 数据库迁移
 │   ├── env.py                        # Alembic环境配置
 │   ├── script.py.mako                # 迁移脚本模板
-│   └── versions/                     # 迁移版本
+│   └── versions/                     # 迁移版本（当前为空）
 │
 ├── scripts/                           # 运维脚本
-│   ├── start.sh                      # 启动服务
-│   ├── stop.sh                       # 停止服务
+│   ├── start.sh                      # 启动服务（检查.env + 依赖 + nohup uvicorn）
+│   ├── stop.sh                       # 停止服务（优雅终止 + 强制清理）
 │   ├── restart.sh                    # 重启服务
-│   ├── status.sh                     # 查看状态
+│   ├── status.sh                     # 查看状态（进程/健康检查/日志/配置）
 │   └── logs.sh                       # 查看日志
 │
-├── data/                              # SQLite数据库文件
-├── logs/                              # 日志文件
-├── uploads/                           # 上传文件存储
-├── htmlcov/                           # 测试覆盖率报告
+├── data/                              # SQLite数据库文件（app.db / ai_tutor.db）
+├── logs/                              # 日志文件（按级别分离）
+│   ├── debug.log
+│   ├── info.log
+│   ├── warning.log
+│   ├── error.log
+│   └── server.log
+├── uploads/                           # 上传文件存储（作业图片）
+│   └── homework/
+├── htmlcov/                           # 测试覆盖率报告（pytest-cov生成）
 ├── requirements.txt                   # 生产依赖
 ├── requirements-dev.txt               # 开发依赖
 ├── pytest.ini                        # Pytest配置
-├── alembic.ini                       # Alembic配置
+├── alembic.ini                       # Alembic配置（database: sqlite:///./data/ai_tutor.db）
 ├── .env.example                      # 环境变量示例
 └── AGENTS.md                         # 本文件
 ```
@@ -238,9 +247,9 @@ pip install -r requirements-dev.txt
 cp .env.example .env
 # 编辑 .env 文件，配置API密钥
 
-# 4. 初始化数据库
+# 4. 创建必要目录并初始化数据库
 mkdir -p data logs uploads
-alembic upgrade head
+alembic upgrade head   # 如果已有迁移版本
 
 # 5. 运行测试
 pytest --cov=src --cov-report=term-missing
@@ -261,33 +270,63 @@ uvicorn src.presentation.api.main:app --reload --host 0.0.0.0 --port 8000
 # - 健康检查: http://localhost:8000/health
 ```
 
+### 4.3 运维脚本
+
+| 脚本 | 功能 |
+|------|------|
+| `./scripts/start.sh` | 检查.env → 检查API Key → 创建目录 → nohup启动uvicorn → 健康检查验证 |
+| `./scripts/stop.sh` | 查找uvicorn进程 → 优雅kill → 2秒后强制清理 → 验证停止 |
+| `./scripts/status.sh` | 显示进程状态、CPU/内存、健康检查结果、最近5条日志、当前模型提供商 |
+| `./scripts/restart.sh` | 依次调用 stop.sh + start.sh |
+| `./scripts/logs.sh` | tail -f logs/server.log |
+
 ---
 
 ## 5. 测试策略
 
-### 5.1 测试分层金字塔
+### 5.1 测试分层
 
 ```
                     ┌─────────┐
-                    │ E2E测试  │  ← 关键用户旅程 (10%)
-                    │  (UI)   │     自动化率: 80%
+                    │ E2E测试  │  ← 关键用户旅程（当前目录为空）
                     └────┬────┘
                          │
                    ┌─────┴─────┐
-                   │  集成测试  │  ← API/数据流 (30%)
-                   │(服务/组件)│     自动化率: 90%
+                   │  集成测试  │  ← 诊断流程 / 变形题流程
                    └─────┬─────┘
                          │
                ┌─────────┴─────────┐
-               │     单元测试       │  ← 业务逻辑 (60%)
-               │ (函数/类/组件)     │     自动化率: 100%
+               │     单元测试       │  ← 引擎 / 模型 / 仓库 / Schema
                └───────────────────┘
 ```
 
-### 5.2 测试命令
+### 5.2 测试配置（pytest.ini）
+
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+asyncio_mode = auto
+addopts = 
+    -v
+    --tb=short
+    --strict-markers
+    --cov=src
+    --cov-report=term-missing
+    --cov-report=html:htmlcov
+markers =
+    unit: Unit tests
+    integration: Integration tests
+    e2e: End-to-end tests
+    slow: Slow running tests
+```
+
+### 5.3 测试命令
 
 ```bash
-# 运行所有测试
+# 运行所有测试（默认会生成覆盖率报告到 htmlcov/）
 pytest
 
 # 运行单元测试
@@ -296,25 +335,26 @@ pytest tests/unit/ -v --cov=src --cov-report=html
 # 运行集成测试
 pytest tests/integration/ -v
 
-# 运行E2E测试
-pytest tests/e2e/ -v
-
-# 运行带覆盖率检查的测试（质量门禁）
-pytest --cov=src --cov-report=term-missing --cov-fail-under=85
-
 # 运行特定标记的测试
 pytest -m unit        # 仅单元测试
 pytest -m integration # 仅集成测试
 pytest -m slow        # 慢测试
 ```
 
-### 5.3 测试覆盖率目标
+### 5.4 测试覆盖率目标
 
 | 类型 | 目标 | 测量方式 |
 |------|------|----------|
 | 代码覆盖率 | ≥85% | pytest-cov |
 | 功能覆盖率 | 核心功能100% | 功能-测试用例矩阵 |
 | 场景覆盖率 | 正常100%，边界≥90% | 测试用例评审 |
+
+### 5.5 核心Fixtures（conftest.py）
+
+- `db_path`: session级别临时SQLite文件
+- `db_connection`: function级别连接（启用外键约束 `PRAGMA foreign_keys = ON`）
+- `initialized_db`: function级别，执行完整的DDL创建所有表（学生/作业/答题/诊断/变形题/知识图谱/认知缺口/家长描述/FTS5虚拟表），并在测试后清理数据
+- 各类 `sample_*_data` fixtures: 提供各表的示例数据字典
 
 ---
 
@@ -324,7 +364,7 @@ pytest -m slow        # 慢测试
 
 - **语言**: Python 3.11+
 - **类型注解**: 强制使用 Type Hints
-- **文档字符串**: 使用 Google Style Docstrings
+- **文档字符串**: 使用 Google Style Docstrings（中文）
 - **代码格式化**: Black (line-length: 88)
 - **导入排序**: isort
 - **静态检查**: mypy + pylint
@@ -355,31 +395,11 @@ pylint src/
 
 ---
 
-## 7. 功能追溯ID体系
+## 7. 配置管理
 
-所有功能、API、测试用例使用统一ID格式：
+### 7.1 环境变量
 
-| 类型 | ID格式 | 示例 | 说明 |
-|------|--------|------|------|
-| 功能 | F-{模块}-{序号} | F-UPLOAD-001 | 功能模块设计 |
-| API | API-{分组}-{序号} | API-HW-001 | API接口设计 |
-| 测试用例 | TC-{模块}-{序号} | TC-UPLOAD-001 | 测试策略设计 |
-| 开发任务 | TASK-{序号} | TASK-001 | 开发任务追踪 |
-
-**追溯关系示例**:
-```
-F-UPLOAD-001 → API-HW-001 → TC-UPLOAD-001, TC-UPLOAD-006
-F-ARBIT-004 → 内部调用 → TC-ARBITER-001,002,003
-F-VAR-001 → API-VAR-001 → TC-VARIANT-001,005
-```
-
----
-
-## 8. 配置管理
-
-### 8.1 环境变量
-
-项目使用 `.env` 文件管理配置，通过 `pydantic-settings` 加载：
+项目使用 `.env` 文件管理配置，通过 `pydantic-settings` 加载。核心配置项：
 
 ```bash
 # 核心配置
@@ -390,18 +410,20 @@ SECRET_KEY=your-secret-key
 # 数据库
 DB_URL=sqlite:///./data/app.db
 
-# AI模型提供商（推荐kimi，国内访问快）
-active_model_provider=kimi
+# 激活的AI模型提供商（推荐kimi，国内访问快）
+ACTIVE_MODEL_PROVIDER=kimi
 
 # Kimi配置（推荐）
 KIMI_API_KEY=your_kimi_api_key
-KIMI_MODEL=kimi-for-coding
+KIMI_MODEL=kimi-k2.5
+KIMI_API_BASE=https://api.moonshot.cn/v1
 KIMI_ENABLE_THINKING=false
 
 # 其他模型...
 OPENAI_API_KEY=sk-xxx
 GEMINI_API_KEY=xxx
 DEEPSEEK_API_KEY=sk-xxx
+ANTHROPIC_API_KEY=sk-ant-xxx
 
 # OCR
 BAIDU_OCR_ENABLED=false
@@ -413,7 +435,7 @@ DIAG_TIMEOUT_SECONDS=90
 DIAG_CONFIDENCE_THRESHOLD=0.8
 ```
 
-### 8.2 配置访问
+### 7.2 配置访问
 
 ```python
 from src.infrastructure.config import get_settings
@@ -426,17 +448,37 @@ model = settings.kimi.model
 db_url = settings.database.url
 ```
 
+配置类结构：
+- `Settings` (主配置): 包含 `env`, `debug`, `secret_key`, `active_model_provider`, 以及各个子配置的实例
+- 子配置: `DatabaseConfig`, `OpenAIConfig`, `KimiConfig`, `GeminiConfig`, `AnthropicConfig`, `DeepSeekConfig`, `BaiduOCRConfig`, `OllamaConfig`, `LoggingConfig`, `VectorDBConfig`, `DiagnosisConfig`, `MemoryConfig`
+- 每个子配置使用 `SettingsConfigDict` 定义对应的环境变量前缀（如 `KIMI_`, `OPENAI_`, `DB_` 等）
+
 ---
 
-## 9. 数据库
+## 8. 数据库
 
-### 9.1 数据库类型
+### 8.1 数据库类型
 
-- **活跃数据**: SQLite (本地文件，路径: `./data/app.db`)
-- **归档**: Markdown文件
-- **向量存储**: Chroma/Pinecone (语义检索)
+- **活跃数据**: SQLite (本地文件)
+- **ORM**: SQLAlchemy 2.0 (DeclarativeBase, Mapped, mapped_column)
+- **迁移**: Alembic
+- **测试数据库**: 临时SQLite文件（通过 `tempfile.mkstemp` 创建）
 
-### 9.2 迁移命令
+### 8.2 核心表结构
+
+| 模块 | 表名 | 说明 |
+|------|------|------|
+| 学生 | `student`, `cognitive_profile` | 学生基本信息 + 长期认知画像 |
+| 作业 | `homework`, `question`, `homework_analysis` | 作业上传 + OCR题目 + 作业分析 |
+| 答题 | `student_answer`, `answer_trace` | 学生答案 + 答题决策路径 |
+| 诊断 | `error_diagnosis`, `diagnosis_path` | 错题诊断 + 诊断选择路径 |
+| 变形题 | `variant_question`, `variant_answer` | 变形题 + 学生作答 |
+| 知识图谱 | `knowledge_point`, `knowledge_dependency`, `student_knowledge_mastery`, `misconception` | 知识点/依赖/掌握度/误解 |
+| 认知缺口 | `cognitive_gap`, `gap_evidence` | 待验证/已固化的认知缺口 |
+| 家长描述 | `parent_description`, `description_parse` | 家长输入 + 解析结果 |
+| 全文检索 | `question_fts` (FTS5虚拟表) | 题目OCR文本全文搜索 |
+
+### 8.3 迁移命令
 
 ```bash
 # 创建新迁移
@@ -455,11 +497,34 @@ alembic current
 alembic history
 ```
 
+> **注意**: 当前 `alembic/versions/` 目录为空，尚未生成初始迁移。数据库Schema在测试环境中通过 `tests/conftest.py` 中的 `initialized_db` fixture 直接执行DDL创建。
+
+---
+
+## 9. 日志系统
+
+使用 **structlog** 实现结构化日志：
+
+- **格式**: 支持 JSON 和 Console 两种格式（通过 `LOG_FORMAT` 环境变量控制）
+- **级别分离**: 默认启用，按级别写入不同文件（`debug.log`, `info.log`, `warning.log`, `error.log`）
+- **轮转**: 使用 `RotatingFileHandler`，单个文件最大 10MB，保留 5 个备份
+- **目录**: `./logs`
+- **第三方库降噪**: `uvicorn` 和 `sqlalchemy.engine` 的日志级别设为 WARNING
+
+使用方式：
+
+```python
+from src.infrastructure.logging import get_logger
+
+logger = get_logger(__name__)
+logger.info("event_name", key1="value1", key2=123)
+```
+
 ---
 
 ## 10. 记忆系统
 
-系统采用OpenHarness风格的四层记忆架构：
+系统采用 OpenHarness 风格的四层记忆架构：
 
 ```
 student_memory/
@@ -477,10 +542,10 @@ student_memory/
     └── crystallized/           # 已固化认知特征（≥30天）
 ```
 
-**结晶机制**:
-- **pending**: 初始状态，24小时观察期
-- **crystallized**: 已固化（≥30天持续验证）
-- **dismissed**: 已排除
+**结晶机制状态**: `pending` → `crystallized` / `dismissed`
+- `pending`: 初始状态，24小时观察期
+- `crystallized`: 已固化（≥30天持续验证）
+- `dismissed`: 已排除
 
 ---
 
@@ -507,7 +572,7 @@ Timeout: 30s (默认) / 95s (诊断相关)
 }
 ```
 
-### 11.3 核心API
+### 11.3 核心API路由
 
 | API ID | 方法 | 路径 | 功能 |
 |--------|------|------|------|
@@ -518,9 +583,38 @@ Timeout: 30s (默认) / 95s (诊断相关)
 | API-VAR-001 | POST | /api/v1/variant/generate | 生成变形题 |
 | API-STAT-001 | GET | /api/v1/statistics/weak-points | 薄弱点清单 |
 
+### 11.4 Web页面路由
+
+| 路径 | 页面 |
+|------|------|
+| `/` | 系统首页（导航到上传/统计） |
+| `/web/upload` | 作业上传页面 |
+| `/web/result/{homework_id}` | 诊断结果页面 |
+| `/web/statistics` | 学习统计页面 |
+
+### 11.5 中间件
+
+1. **CORS中间件**: 允许所有来源（开发环境）
+2. **GZip压缩**: 最小1000字节触发
+3. **请求日志中间件**: 记录方法、路径、处理时间、状态码、Request-ID
+4. **超时控制中间件**: 诊断/作业请求 95秒超时，其他请求 30秒超时，返回504错误
+
 ---
 
-## 12. Git提交规范
+## 12. 功能追溯ID体系
+
+所有功能、API、测试用例使用统一ID格式：
+
+| 类型 | ID格式 | 示例 | 说明 |
+|------|--------|------|------|
+| 功能 | F-{模块}-{序号} | F-UPLOAD-001 | 功能模块设计 |
+| API | API-{分组}-{序号} | API-HW-001 | API接口设计 |
+| 测试用例 | TC-{模块}-{序号} | TC-UPLOAD-001 | 测试策略设计 |
+| 开发任务 | TASK-{序号} | TASK-001 | 开发任务追踪 |
+
+---
+
+## 13. Git提交规范
 
 ```
 [Phase-X] 类型: 简短描述
@@ -550,7 +644,7 @@ Timeout: 30s (默认) / 95s (诊断相关)
 
 ---
 
-## 13. 质量门禁
+## 14. 质量门禁
 
 每个Phase必须通过:
 
@@ -566,21 +660,21 @@ Timeout: 30s (默认) / 95s (诊断相关)
 
 ---
 
-## 14. 安全考虑
+## 15. 安全考虑
 
-### 14.1 数据安全
+### 15.1 数据安全
 
-- **敏感数据**: 学生姓名等使用加密存储
+- **敏感数据**: 学生姓名等使用加密存储（`passlib[bcrypt]` 已引入）
 - **图片存储**: 原图压缩后存储，敏感信息脱敏
-- **访问控制**: JWT Token认证，分级权限
+- **访问控制**: JWT Token认证（`python-jose[cryptography]` 已引入）
 
-### 14.2 AI安全
+### 15.2 AI安全
 
 - **幻觉防护**: 3模型仲裁 + 人工审核机制
 - **输出过滤**: 讲解内容安全性检查
 - **输入过滤**: 家长描述敏感词过滤
 
-### 14.3 性能安全
+### 15.3 性能安全
 
 - **限流保护**: API级别限流防刷
 - **超时处理**: 90秒闭环超时降级
@@ -588,7 +682,7 @@ Timeout: 30s (默认) / 95s (诊断相关)
 
 ---
 
-## 15. 术语表
+## 16. 术语表
 
 | 术语 | 说明 |
 |------|------|
@@ -605,9 +699,9 @@ Timeout: 30s (默认) / 95s (诊断相关)
 
 ---
 
-## 16. 参考资源
+## 17. 参考资源
 
-### 16.1 项目文档
+### 17.1 项目文档
 
 - [AI助教系统-开发技术文档](./docs/AI助教系统-开发技术文档.md) - 完整技术文档导航
 - [01-系统架构设计](./docs/01-系统架构设计.md) - 分层架构详细设计
@@ -616,7 +710,7 @@ Timeout: 30s (默认) / 95s (诊断相关)
 - [04-API接口设计](./docs/04-API接口设计.md) - OpenAPI规范
 - [05-测试策略设计](./docs/05-测试策略设计.md) - 测试用例
 
-### 16.2 外部参考
+### 17.2 外部参考
 
 - [OpenHarness GitHub](https://github.com/HKUDS/OpenHarness)
 - [Kimi Code API Docs](https://www.kimi.com/code/docs/more/third-party-agents.html)
@@ -625,4 +719,4 @@ Timeout: 30s (默认) / 95s (诊断相关)
 
 ---
 
-*本文档基于OpenHarness架构设计，确保功能可追溯、可测性，支持敏捷开发和持续迭代。*
+*本文档基于实际项目代码生成，确保信息准确、可追溯、可测性，支持敏捷开发和持续迭代。*
