@@ -15,6 +15,13 @@ NC='\033[0m' # No Color
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_DIR"
 
+# 激活虚拟环境（优先使用项目 venv）
+if [ -f "$PROJECT_DIR/venv/bin/activate" ]; then
+    source "$PROJECT_DIR/venv/bin/activate"
+elif [ -f "$PROJECT_DIR/.venv/bin/activate" ]; then
+    source "$PROJECT_DIR/.venv/bin/activate"
+fi
+
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}      AI助教系统 - 启动脚本${NC}"
 echo -e "${BLUE}========================================${NC}"

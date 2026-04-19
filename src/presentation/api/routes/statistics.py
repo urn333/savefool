@@ -27,7 +27,6 @@ from src.presentation.api.schemas import (
     KnowledgeGraphData,
     KnowledgeGraphResponse,
     KnowledgeNode,
-    KnowledgeNodeStatus,
     OverviewStats,
     StatisticsOverviewResponse,
     StatisticsTrendResponse,
