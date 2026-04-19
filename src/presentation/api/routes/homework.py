@@ -50,6 +50,60 @@ router = APIRouter()
 # 进度存储（内存，实时性要求高）
 _progress_store: dict = {}
 
+# 作业内存缓存（用于诊断过程中的实时状态）
+_homework_store: dict = {}
+
+
+import re as _re_module
+
+
+def _sanitize_json_escapes(text: str) -> str:
+    """修复 JSON 字符串中的非法转义序列（如 LaTeX 中的 \\frac, \\sqrt 等）.
+    
+    将不在 JSON 合法转义列表中的反斜杠替换为双反斜杠。
+    """
+    # 合法 JSON 转义: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+    result = text
+    
+    # 步骤1: 保护 \uXXXX 转义
+    result = _re_module.sub(r'\\u([0-9a-fA-F]{4})', '\x00ESC_U\1\x00', result)
+    
+    # 步骤2: 保护其他合法转义
+    escapes = {
+        '\\\\': '\x00ESC_BSL\x00',
+        '\\"': '\x00ESC_QUO\x00',
+        '\\/': '\x00ESC_SLH\x00',
+        '\\b': '\x00ESC_B\x00',
+        '\\f': '\x00ESC_F\x00',
+        '\\n': '\x00ESC_N\x00',
+        '\\r': '\x00ESC_R\x00',
+        '\\t': '\x00ESC_T\x00',
+    }
+    for old, new in escapes.items():
+        result = result.replace(old, new)
+    
+    # 步骤3: 修复剩余的单个反斜杠
+    result = _re_module.sub(r'\\(.)', r'\\\\\1', result)
+    
+    # 步骤4: 恢复合法转义
+    restore = {
+        '\x00ESC_BSL\x00': '\\\\',
+        '\x00ESC_QUO\x00': '\\"',
+        '\x00ESC_SLH\x00': '\\/',
+        '\x00ESC_B\x00': '\\b',
+        '\x00ESC_F\x00': '\\f',
+        '\x00ESC_N\x00': '\\n',
+        '\x00ESC_R\x00': '\\r',
+        '\x00ESC_T\x00': '\\t',
+    }
+    for old, new in restore.items():
+        result = result.replace(old, new)
+    
+    # 恢复 \uXXXX
+    result = _re_module.sub(r'\x00ESC_U([0-9a-fA-F]{4})\x00', r'\\u\1', result)
+    
+    return result
+
 
 async def _persist_homework_result(homework_id: str, **kwargs) -> None:
     """将作业结果持久化到数据库.
@@ -63,7 +117,7 @@ async def _persist_homework_result(homework_id: str, **kwargs) -> None:
     try:
         async with db_manager.session() as session:
             hw_service = HomeworkService(session)
-            status = kwargs.get("status")
+            status = kwargs.pop("status", None)
             await hw_service.update_homework_status(homework_id, status, **kwargs)
     except Exception as e:
         logger.error("persist_homework_failed", homework_id=homework_id, error=str(e))
@@ -731,13 +785,16 @@ async def _process_diagnosis(
         raw_response = model_response.content
         logger.info("kimi_response_received", homework_id=homework_id, response_length=len(raw_response))
         
+        # 预处理：修复 JSON 中的非法转义序列
+        sanitized_response = _sanitize_json_escapes(raw_response)
+        
         # 提取JSON部分
         result = None
         parse_error = None
         
-        # 尝试1: 直接解析
+        # 尝试1: 直接解析（预处理后的）
         try:
-            result = json.loads(raw_response)
+            result = json.loads(sanitized_response)
         except json.JSONDecodeError as e:
             parse_error = str(e)
         
@@ -746,7 +803,7 @@ async def _process_diagnosis(
             try:
                 json_match = re.search(r'```json\s*(.*?)\s*```', raw_response, re.DOTALL)
                 if json_match:
-                    result = json.loads(json_match.group(1))
+                    result = json.loads(_sanitize_json_escapes(json_match.group(1)))
             except json.JSONDecodeError as e:
                 parse_error = str(e)
         
@@ -755,7 +812,7 @@ async def _process_diagnosis(
             try:
                 json_match = re.search(r'\{[\s\S]*\}', raw_response)
                 if json_match:
-                    result = json.loads(json_match.group(0))
+                    result = json.loads(_sanitize_json_escapes(json_match.group(0)))
             except json.JSONDecodeError as e:
                 parse_error = str(e)
         
@@ -763,14 +820,13 @@ async def _process_diagnosis(
         if result is None:
             try:
                 cleaned = raw_response.replace('\\n', '\n').replace('\\t', '\t')
-                result = json.loads(cleaned)
+                result = json.loads(_sanitize_json_escapes(cleaned))
             except json.JSONDecodeError:
                 pass
         
         # 尝试5: 修复常见JSON语法错误（单引号、尾随逗号等）
         if result is None:
             try:
-                import re
                 # 修复单引号（但避免修复英文缩写中的撇号）
                 cleaned = raw_response
                 # 将对象/数组中的单引号替换为双引号
@@ -779,7 +835,7 @@ async def _process_diagnosis(
                 cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
                 # 修复缺少逗号的情况（某些模型会漏掉）
                 cleaned = re.sub(r'"\s*"', '", "', cleaned)
-                result = json.loads(cleaned)
+                result = json.loads(_sanitize_json_escapes(cleaned))
             except json.JSONDecodeError:
                 pass
         
@@ -793,7 +849,7 @@ async def _process_diagnosis(
                     # 清理并解析
                     questions_json = questions_json.replace("'", '"')
                     questions_json = re.sub(r',(\s*[}\]])', r'\1', questions_json)
-                    questions = json.loads(questions_json)
+                    questions = json.loads(_sanitize_json_escapes(questions_json))
                     result = {"questions": questions, "summary": {}, "confidence": 0.8}
             except Exception:
                 pass

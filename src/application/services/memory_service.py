@@ -201,7 +201,7 @@ class MemoryService:
                 # 记录答题尝试
                 await self.memory_manager.record_problem_attempt(
                     student_id=student_id,
-                    question_id=q.get("question_id", homework_id),
+                    question_id=str(q.get("question_id", homework_id)),
                     answer_content=q.get("student_answer", ""),
                     is_correct=is_correct,
                     time_spent=0,
@@ -237,14 +237,21 @@ class MemoryService:
             ErrorType 枚举值，解析失败返回 None.
         """
         mapping = {
-            "careless": ErrorType.CARELESS,
-            "method_error": ErrorType.METHOD_ERROR,
-            "concept_gap": ErrorType.CONCEPT_GAP,
+            "careless": ErrorType.CARELESS_MISTAKE,
+            "careless_mistake": ErrorType.CARELESS_MISTAKE,
+            "method_error": ErrorType.LOGICAL_FLAW,
+            "concept_error": ErrorType.CONCEPT_MISUNDERSTANDING,
+            "concept_gap": ErrorType.KNOWLEDGE_GAP,
+            "concept_misunderstanding": ErrorType.CONCEPT_MISUNDERSTANDING,
             "calculation_error": ErrorType.CALCULATION_ERROR,
             "reading_error": ErrorType.READING_ERROR,
-            "unknown": ErrorType.UNKNOWN,
+            "logic_error": ErrorType.LOGICAL_FLAW,
+            "logical_flaw": ErrorType.LOGICAL_FLAW,
+            "knowledge_gap": ErrorType.KNOWLEDGE_GAP,
+            "unknown": ErrorType.KNOWLEDGE_GAP,
+            "none": None,
         }
-        return mapping.get(str(error_type_str).lower().strip(), ErrorType.UNKNOWN)
+        return mapping.get(str(error_type_str).lower().strip(), ErrorType.KNOWLEDGE_GAP)
 
     async def run_crystallization(self, student_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """运行记忆结晶.
