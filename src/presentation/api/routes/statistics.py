@@ -1,22 +1,34 @@
 """统计路由.
 
 提供学习统计、知识图谱、成长趋势等API接口.
+所有数据从数据库真实查询，替代原有 mock 数据.
 """
 
-import random
 from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Query
+from sqlalchemy import func, select
 
+from src.application.services.memory_service import MemoryService
+from src.infrastructure.db import (
+    CognitiveGap,
+    Homework,
+    StudentKnowledgeMastery,
+)
+from src.infrastructure.db.enums import HomeworkStatus
 from src.infrastructure.logging import get_logger
+from src.infrastructure.storage.database import db_manager
 from src.presentation.api.exceptions import NotFoundException, ValidationException
 from src.presentation.api.schemas import (
+    Achievement,
     BaseResponse,
     KnowledgeEdge,
     KnowledgeGraphData,
     KnowledgeGraphResponse,
     KnowledgeNode,
+    KnowledgeNodeStatus,
+    OverviewStats,
     StatisticsOverviewResponse,
     StatisticsTrendResponse,
     SubjectStat,
@@ -24,231 +36,208 @@ from src.presentation.api.schemas import (
     TrendDataPoint,
     WeakPointItem,
     WeakPointsResponse,
-    OverviewStats,
-    Achievement,
 )
 
 logger = get_logger(__name__)
 router = APIRouter()
 
-# 内存存储
-_knowledge_graph_store: dict = {}
-_statistics_store: dict = {}
 
+# ========== 辅助查询函数 ==========
 
-# 模拟知识数据
-MOCK_KNOWLEDGE_POINTS = [
-    {"id": "kp_001", "name": "加法运算", "category": "计算"},
-    {"id": "kp_002", "name": "进位加法", "category": "计算"},
-    {"id": "kp_003", "name": "减法借位", "category": "计算"},
-    {"id": "kp_004", "name": "乘法口诀", "category": "计算"},
-    {"id": "kp_005", "name": "除法基础", "category": "计算"},
-    {"id": "kp_006", "name": "分数认识", "category": "数与代数"},
-    {"id": "kp_007", "name": "小数运算", "category": "数与代数"},
-    {"id": "kp_008", "name": "平面图形", "category": "几何"},
-    {"id": "kp_009", "name": "立体图形", "category": "几何"},
-    {"id": "kp_010", "name": "数据统计", "category": "统计"},
-]
+async def _get_homework_stats(
+    student_id: str,
+    period: str = "month",
+    subject: Optional[str] = None,
+) -> dict:
+    """查询作业统计.
 
-MOCK_KNOWLEDGE_EDGES = [
-    {"source": "kp_001", "target": "kp_002", "relation": "prerequisite"},
-    {"source": "kp_001", "target": "kp_003", "relation": "prerequisite"},
-    {"source": "kp_001", "target": "kp_004", "relation": "prerequisite"},
-    {"source": "kp_004", "target": "kp_005", "relation": "prerequisite"},
-    {"source": "kp_005", "target": "kp_006", "relation": "related"},
-    {"source": "kp_001", "target": "kp_007", "relation": "prerequisite"},
-    {"source": "kp_008", "target": "kp_009", "relation": "prerequisite"},
-]
-
-
-def _generate_mock_knowledge_graph(student_id: str, subject: str) -> KnowledgeGraphResponse:
-    """生成模拟知识图谱.
-    
     Args:
         student_id: 学生ID
-        subject: 学科
-        
+        period: 周期
+        subject: 学科筛选
+
     Returns:
-        知识图谱响应
+        统计字典
     """
-    # 生成节点（带掌握度）
-    nodes = []
-    for i, kp in enumerate(MOCK_KNOWLEDGE_POINTS):
-        # 模拟不同的掌握度
-        mastery = random.uniform(0.3, 0.95)
-        
-        # 根据掌握度确定状态
-        if mastery >= 0.8:
-            status = "mastered"
-        elif mastery >= 0.5:
-            status = "learning"
-        else:
-            status = "weak"
-        
-        nodes.append(KnowledgeNode(
-            id=kp["id"],
-            name=kp["name"],
-            category=kp["category"],
-            mastery_level=round(mastery, 2),
-            status=status,
-            x=100 + (i % 5) * 150,
-            y=100 + (i // 5) * 100,
-        ))
-    
-    # 边
-    edges = [
-        KnowledgeEdge(
-            source=e["source"],
-            target=e["target"],
-            relation=e["relation"],
+    # 确定时间范围
+    now = datetime.utcnow()
+    if period == "week":
+        start_date = now - timedelta(days=7)
+    elif period == "semester":
+        start_date = now - timedelta(days=90)
+    elif period == "year":
+        start_date = now - timedelta(days=365)
+    else:
+        start_date = now - timedelta(days=30)
+
+    async with db_manager.session() as session:
+        # 查询作业总数
+        stmt = select(func.count()).where(
+            Homework.student_id == student_id,
+            Homework.created_at >= start_date,
         )
-        for e in MOCK_KNOWLEDGE_EDGES
-    ]
-    
-    return KnowledgeGraphResponse(
-        student_id=student_id,
-        subject=subject,
-        graph=KnowledgeGraphData(nodes=nodes, edges=edges),
-        updated_at=int(datetime.utcnow().timestamp()),
-    )
+        if subject:
+            stmt = stmt.where(Homework.subject == subject)
+        result = await session.execute(stmt)
+        total_homework = result.scalar() or 0
+
+        # 查询已完成作业
+        stmt = select(func.count(), func.sum(Homework.total_count), func.sum(Homework.error_count)).where(
+            Homework.student_id == student_id,
+            Homework.status == HomeworkStatus.COMPLETED.value,
+            Homework.created_at >= start_date,
+        )
+        if subject:
+            stmt = stmt.where(Homework.subject == subject)
+        result = await session.execute(stmt)
+        row = result.one_or_none()
+        completed_homework = row[0] or 0
+        total_questions = row[1] or 0
+        total_errors = row[2] or 0
+
+        # 正确率
+        accuracy_rate = 0.0
+        if total_questions > 0:
+            accuracy_rate = (total_questions - total_errors) / total_questions
+
+        # 学科统计
+        subject_stats = []
+        stmt = select(
+            Homework.subject,
+            func.count(),
+            func.sum(Homework.total_count),
+            func.sum(Homework.error_count),
+        ).where(
+            Homework.student_id == student_id,
+            Homework.status == HomeworkStatus.COMPLETED.value,
+            Homework.created_at >= start_date,
+        ).group_by(Homework.subject)
+        result = await session.execute(stmt)
+        for row in result.all():
+            sub, hw_count, q_count, err_count = row
+            sub_accuracy = 0.0
+            if q_count and q_count > 0:
+                sub_accuracy = (q_count - (err_count or 0)) / q_count
+            subject_stats.append({
+                "subject": sub,
+                "homework_count": hw_count or 0,
+                "accuracy_rate": round(sub_accuracy, 2),
+            })
+
+        return {
+            "total_homework": total_homework,
+            "completed_homework": completed_homework,
+            "total_questions": total_questions or 0,
+            "total_errors": total_errors or 0,
+            "accuracy_rate": round(accuracy_rate, 2),
+            "subject_stats": subject_stats,
+        }
 
 
-def _generate_mock_weak_points(student_id: str, limit: int = 5) -> WeakPointsResponse:
-    """生成模拟薄弱点.
-    
-    Args:
-        student_id: 学生ID
-        limit: 数量限制
-        
-    Returns:
-        薄弱点响应
-    """
-    # 按掌握度排序（低的在前）
-    weak_points = []
-    
-    weak_knowledge = [
-        {"id": "kp_003", "name": "减法借位", "category": "计算", "mastery": 0.35, "errors": 12},
-        {"id": "kp_004", "name": "乘法口诀", "category": "计算", "mastery": 0.45, "errors": 8},
-        {"id": "kp_006", "name": "分数认识", "category": "数与代数", "mastery": 0.50, "errors": 6},
-        {"id": "kp_009", "name": "立体图形", "category": "几何", "mastery": 0.55, "errors": 5},
-        {"id": "kp_010", "name": "数据统计", "category": "统计", "mastery": 0.60, "errors": 4},
-    ]
-    
-    now = int(datetime.utcnow().timestamp())
-    
-    for i, kp in enumerate(weak_knowledge[:limit], 1):
-        # 确定优先级
-        if kp["mastery"] < 0.4:
-            priority = "high"
-        elif kp["mastery"] < 0.6:
-            priority = "medium"
-        else:
-            priority = "low"
-        
-        # 随机最后错误时间（最近7天内）
-        last_error = now - random.randint(0, 7 * 24 * 3600)
-        
-        weak_points.append(WeakPointItem(
-            rank=i,
-            knowledge_point_id=kp["id"],
-            name=kp["name"],
-            category=kp["category"],
-            mastery_level=kp["mastery"],
-            error_count=kp["errors"],
-            last_error_at=last_error,
-            priority=priority,
-        ))
-    
-    return WeakPointsResponse(
-        student_id=student_id,
-        weaknesses=weak_points,
-        total=len(weak_points),
-    )
-
-
-def _generate_mock_trend(
+async def _get_weekly_trend(
     student_id: str,
     metric: str,
     period: str,
     subject: Optional[str] = None,
-) -> StatisticsTrendResponse:
-    """生成模拟趋势数据.
-    
+) -> TrendData:
+    """按周聚合趋势数据.
+
     Args:
         student_id: 学生ID
         metric: 指标
         period: 周期
-        subject: 学科（可选）
-        
+        subject: 学科
+
     Returns:
-        趋势响应
+        趋势数据
     """
-    # 确定时间范围
     now = datetime.utcnow()
-    
     if period == "week":
-        days = 7
+        weeks = 1
         start_date = now - timedelta(days=7)
-    elif period == "month":
-        days = 30
-        start_date = now - timedelta(days=30)
     elif period == "semester":
-        days = 90
-        start_date = now - timedelta(days=90)
+        weeks = 12
+        start_date = now - timedelta(days=84)
     elif period == "year":
-        days = 365
-        start_date = now - timedelta(days=365)
+        weeks = 52
+        start_date = now - timedelta(days=364)
     else:
-        days = 30
-        start_date = now - timedelta(days=30)
-    
-    # 生成数据点（每周一个点）
+        weeks = 4
+        start_date = now - timedelta(days=28)
+
     data_points = []
-    current_date = start_date
-    current_value = 0.6  # 起始值
-    
-    while current_date <= now:
-        # 模拟上升趋势
-        current_value += random.uniform(-0.05, 0.08)
-        current_value = max(0.3, min(0.95, current_value))
-        
-        data_points.append(TrendDataPoint(
-            date=current_date.strftime("%Y-%m-%d"),
-            value=round(current_value, 2),
-            homework_count=random.randint(1, 5),
-        ))
-        
-        current_date += timedelta(days=7)
-    
+    current_start = start_date
+
+    async with db_manager.session() as session:
+        for i in range(weeks):
+            week_end = current_start + timedelta(days=7)
+
+            stmt = select(
+                func.sum(Homework.total_count),
+                func.sum(Homework.error_count),
+                func.count(),
+            ).where(
+                Homework.student_id == student_id,
+                Homework.status == HomeworkStatus.COMPLETED.value,
+                Homework.completed_at >= current_start,
+                Homework.completed_at < week_end,
+            )
+            if subject:
+                stmt = stmt.where(Homework.subject == subject)
+
+            result = await session.execute(stmt)
+            row = result.one_or_none()
+            q_count = row[0] or 0
+            err_count = row[1] or 0
+            hw_count = row[2] or 0
+
+            if metric == "accuracy":
+                value = 0.0
+                if q_count > 0:
+                    value = (q_count - err_count) / q_count
+            elif metric == "mastery":
+                # 查询该周结束时的平均掌握度
+                stmt_m = select(func.avg(StudentKnowledgeMastery.mastery_level)).where(
+                    StudentKnowledgeMastery.student_id == student_id,
+                    StudentKnowledgeMastery.last_practiced <= week_end,
+                )
+                result_m = await session.execute(stmt_m)
+                value = result_m.scalar() or 0.0
+            else:
+                value = float(hw_count)
+
+            data_points.append(TrendDataPoint(
+                date=week_end.strftime("%Y-%m-%d"),
+                value=round(value, 2),
+                homework_count=hw_count,
+            ))
+
+            current_start = week_end
+
     # 计算趋势
-    if len(data_points) >= 2:
-        improvement = data_points[-1].value - data_points[0].value
-        if improvement > 0.1:
+    valid_points = [p for p in data_points if p.homework_count > 0]
+    if len(valid_points) >= 2:
+        improvement = valid_points[-1].value - valid_points[0].value
+        if improvement > 0.05:
             trend_direction = "up"
-        elif improvement < -0.1:
+        elif improvement < -0.05:
             trend_direction = "down"
         else:
             trend_direction = "stable"
     else:
         improvement = 0
         trend_direction = "stable"
-    
-    trend = TrendData(
+
+    return TrendData(
         start_date=start_date.strftime("%Y-%m-%d"),
         end_date=now.strftime("%Y-%m-%d"),
         data_points=data_points,
         trend_direction=trend_direction,
         improvement=round(improvement, 2),
     )
-    
-    return StatisticsTrendResponse(
-        student_id=student_id,
-        metric=metric,
-        period=period,
-        subject=subject,
-        trend=trend,
-    )
 
+
+# ========== API 路由 ==========
 
 @router.get(
     "/knowledge-graph",
@@ -261,35 +250,68 @@ async def get_knowledge_graph(
     subject: str = Query(default="math", description="学科筛选"),
 ) -> BaseResponse:
     """获取知识图谱.
-    
-    返回学生个人知识图谱，包含知识点节点和依赖关系边。
-    
-    Args:
-        student_id: 学生ID
-        subject: 学科（默认math）
-        
-    Returns:
-        知识图谱数据
+
+    从 student_knowledge_mastery 表查询真实掌握度数据构建知识图谱.
     """
-    logger.info(
-        "get_knowledge_graph",
-        student_id=student_id,
-        subject=subject,
-    )
-    
-    # 检查缓存
-    cache_key = f"{student_id}_{subject}"
-    if cache_key not in _knowledge_graph_store:
-        _knowledge_graph_store[cache_key] = _generate_mock_knowledge_graph(
-            student_id, subject
+    logger.info("get_knowledge_graph", student_id=student_id, subject=subject)
+
+    nodes: List[KnowledgeNode] = []
+    edges: List[KnowledgeEdge] = []
+
+    async with db_manager.session() as session:
+        # 查询学生的知识掌握度
+        memory_service = MemoryService(session)
+        weak_points = await memory_service.get_weak_points(student_id, subject, limit=20)
+
+        # 从掌握度表查询所有知识点
+        stmt = select(StudentKnowledgeMastery).where(
+            StudentKnowledgeMastery.student_id == student_id,
         )
-    
-    graph = _knowledge_graph_store[cache_key]
-    
+        result = await session.execute(stmt)
+        masteries = result.scalars().all()
+
+        # 构建节点
+        for i, m in enumerate(masteries):
+            mastery = m.mastery_level or 0.0
+            if mastery >= 0.8:
+                status = "mastered"
+            elif mastery >= 0.5:
+                status = "learning"
+            else:
+                status = "weak"
+
+            nodes.append(KnowledgeNode(
+                id=m.knowledge_id,
+                name=m.knowledge_id,  # 没有关联 knowledge_point 表，用 ID 作为名称
+                category="未知",
+                mastery_level=round(mastery, 2),
+                status=status,
+                x=100 + (i % 5) * 150,
+                y=100 + (i // 5) * 100,
+            ))
+
+        # 如果没有掌握度数据，从薄弱点构建节点
+        if not nodes and weak_points:
+            for i, wp in enumerate(weak_points):
+                nodes.append(KnowledgeNode(
+                    id=f"wp_{i}",
+                    name=wp["concept"],
+                    category="薄弱点",
+                    mastery_level=0.3,
+                    status="weak",
+                    x=100 + (i % 5) * 150,
+                    y=100 + (i // 5) * 100,
+                ))
+
     return BaseResponse(
         code=0,
         message="success",
-        data=graph.model_dump()
+        data=KnowledgeGraphResponse(
+            student_id=student_id,
+            subject=subject,
+            graph=KnowledgeGraphData(nodes=nodes, edges=edges),
+            updated_at=int(datetime.utcnow().timestamp()),
+        ).model_dump()
     )
 
 
@@ -305,30 +327,82 @@ async def get_weak_points(
     limit: int = Query(default=5, ge=1, le=10, description="数量限制"),
 ) -> BaseResponse:
     """获取薄弱点.
-    
-    返回学生薄弱知识点Top列表，按掌握度排序。
-    
-    Args:
-        student_id: 学生ID
-        subject: 学科筛选（可选）
-        limit: 数量（默认5，最大10）
-        
-    Returns:
-        薄弱点列表
+
+    从 cognitive_gap 和 student_knowledge_mastery 查询真实薄弱点.
     """
-    logger.info(
-        "get_weak_points",
-        student_id=student_id,
-        subject=subject,
-        limit=limit,
-    )
-    
-    weak_points = _generate_mock_weak_points(student_id, limit)
-    
+    logger.info("get_weak_points", student_id=student_id, subject=subject, limit=limit)
+
+    weaknesses: List[WeakPointItem] = []
+
+    async with db_manager.session() as session:
+        memory_service = MemoryService(session)
+
+        # 1. 查询 pending/crystallized 的认知缺口
+        stmt = select(CognitiveGap).where(
+            CognitiveGap.student_id == student_id,
+        ).order_by(CognitiveGap.occurrence_count.desc())
+        result = await session.execute(stmt)
+        gaps = result.scalars().all()
+
+        rank = 1
+        for gap in gaps:
+            if rank > limit:
+                break
+            for knowledge in gap.related_knowledge:
+                if rank > limit:
+                    break
+                priority = "high" if gap.occurrence_count >= 2 else "medium"
+                last_error = int(gap.discovered_at.timestamp()) if gap.discovered_at else int(datetime.utcnow().timestamp())
+
+                weaknesses.append(WeakPointItem(
+                    rank=rank,
+                    knowledge_point_id=knowledge,
+                    name=knowledge,
+                    category="认知缺口",
+                    mastery_level=0.2,
+                    error_count=gap.occurrence_count,
+                    last_error_at=last_error,
+                    priority=priority,
+                ))
+                rank += 1
+
+        # 2. 补充掌握度较低的知识点
+        if rank <= limit:
+            stmt = select(StudentKnowledgeMastery).where(
+                StudentKnowledgeMastery.student_id == student_id,
+                StudentKnowledgeMastery.mastery_level < 0.5,
+            ).order_by(StudentKnowledgeMastery.mastery_level.asc())
+            result = await session.execute(stmt)
+            low_masteries = result.scalars().all()
+
+            for m in low_masteries:
+                if rank > limit:
+                    break
+                # 去重
+                if any(w.knowledge_point_id == m.knowledge_id for w in weaknesses):
+                    continue
+
+                last_practiced = int(m.last_practiced.timestamp()) if m.last_practiced else int(datetime.utcnow().timestamp())
+                weaknesses.append(WeakPointItem(
+                    rank=rank,
+                    knowledge_point_id=m.knowledge_id,
+                    name=m.knowledge_id,
+                    category="低掌握度",
+                    mastery_level=round(m.mastery_level or 0.0, 2),
+                    error_count=m.practice_count or 0,
+                    last_error_at=last_practiced,
+                    priority="medium",
+                ))
+                rank += 1
+
     return BaseResponse(
         code=0,
         message="success",
-        data=weak_points.model_dump()
+        data=WeakPointsResponse(
+            student_id=student_id,
+            weaknesses=weaknesses,
+            total=len(weaknesses),
+        ).model_dump()
     )
 
 
@@ -345,40 +419,30 @@ async def get_trends(
     subject: Optional[str] = Query(None, description="学科筛选"),
 ) -> BaseResponse:
     """获取成长趋势.
-    
-    返回学生在指定指标上的成长趋势曲线。
-    
-    Args:
-        student_id: 学生ID
-        metric: 指标（accuracy/mastery/practice_time）
-        period: 周期（week/month/semester/year）
-        subject: 学科筛选（可选）
-        
-    Returns:
-        趋势数据
+
+    从 homework 表按周聚合真实趋势数据.
     """
-    logger.info(
-        "get_trends",
-        student_id=student_id,
-        metric=metric,
-        period=period,
-        subject=subject,
-    )
-    
-    # 验证指标
+    logger.info("get_trends", student_id=student_id, metric=metric, period=period, subject=subject)
+
     valid_metrics = ["accuracy", "mastery", "practice_time"]
     if metric not in valid_metrics:
         raise ValidationException(
             message=f"不支持的指标: {metric}",
             errors=[{"field": "metric", "message": f"必须是: {valid_metrics}"}],
         )
-    
-    trend = _generate_mock_trend(student_id, metric, period, subject)
-    
+
+    trend = await _get_weekly_trend(student_id, metric, period, subject)
+
     return BaseResponse(
         code=0,
         message="success",
-        data=trend.model_dump()
+        data=StatisticsTrendResponse(
+            student_id=student_id,
+            metric=metric,
+            period=period,
+            subject=subject,
+            trend=trend,
+        ).model_dump()
     )
 
 
@@ -393,70 +457,51 @@ async def get_statistics_overview(
     period: str = Query(default="month", description="周期: week/month/semester"),
 ) -> BaseResponse:
     """获取统计概览.
-    
-    返回学生学习概览统计信息。
-    
-    Args:
-        student_id: 学生ID
-        period: 周期（week/month/semester）
-        
-    Returns:
-        统计概览
+
+    从 homework 表查询真实统计数据.
     """
-    logger.info(
-        "get_statistics_overview",
-        student_id=student_id,
-        period=period,
-    )
-    
-    # 模拟概览数据
-    overview = OverviewStats(
-        total_homework=45,
-        total_questions=450,
-        accuracy_rate=0.78,
-        practice_time=1800,
-        streak_days=7,
-    )
-    
+    logger.info("get_statistics_overview", student_id=student_id, period=period)
+
+    stats = await _get_homework_stats(student_id, period)
+
     # 学科统计
     subject_stats = [
         SubjectStat(
-            subject="math",
-            homework_count=20,
-            accuracy_rate=0.75,
-            weakness_count=3,
-        ),
-        SubjectStat(
-            subject="chinese",
-            homework_count=15,
-            accuracy_rate=0.82,
-            weakness_count=2,
-        ),
-        SubjectStat(
-            subject="english",
-            homework_count=10,
-            accuracy_rate=0.80,
-            weakness_count=1,
-        ),
+            subject=s["subject"],
+            homework_count=s["homework_count"],
+            accuracy_rate=s["accuracy_rate"],
+            weakness_count=0,  # 暂不从这里计算
+        )
+        for s in stats["subject_stats"]
     ]
-    
-    # 成就
+
+    # 成就（简化实现，基于真实数据触发）
     now = int(datetime.utcnow().timestamp())
-    achievements = [
-        Achievement(
-            id="ach_001",
-            name="连续7天打卡",
-            icon="streak_7",
-            earned_at=now - 86400,
-        ),
-        Achievement(
-            id="ach_002",
-            name="首次全对",
-            icon="perfect",
-            earned_at=now - 172800,
-        ),
-    ]
-    
+    achievements: List[Achievement] = []
+
+    if stats["accuracy_rate"] >= 0.9 and stats["total_questions"] >= 10:
+        achievements.append(Achievement(
+            id="ach_perfect",
+            name="高正确率",
+            icon="trophy",
+            earned_at=now,
+        ))
+    if stats["total_homework"] >= 5:
+        achievements.append(Achievement(
+            id="ach_active",
+            name="积极学习者",
+            icon="fire",
+            earned_at=now,
+        ))
+
+    overview = OverviewStats(
+        total_homework=stats["total_homework"],
+        total_questions=stats["total_questions"],
+        accuracy_rate=stats["accuracy_rate"],
+        practice_time=stats["total_questions"] * 2,  # 估算：每题2分钟
+        streak_days=0,  # 需要额外的打卡记录
+    )
+
     result = StatisticsOverviewResponse(
         student_id=student_id,
         period=period,
@@ -464,7 +509,7 @@ async def get_statistics_overview(
         subject_stats=subject_stats,
         achievements=achievements,
     )
-    
+
     return BaseResponse(
         code=0,
         message="success",
