@@ -288,6 +288,7 @@ def _register_routes(app: FastAPI) -> None:
                 </p>
                 <div class="nav">
                     <a href="/web/upload">📤 上传作业</a>
+                    <a href="/web/history">📋 作业记录</a>
                     <a href="/web/statistics">📊 学习统计</a>
                 </div>
                 <div class="api-link">
@@ -358,6 +359,12 @@ def _register_static_files(app: FastAPI) -> None:
         async def statistics_page(request: Request):
             """统计页面."""
             html = render_template("statistics.html", {"active_page": "statistics"})
+            return HTMLResponse(html)
+        
+        @app.get("/web/history", response_class=HTMLResponse)
+        async def history_page(request: Request):
+            """作业记录页面."""
+            html = render_template("history.html", {"active_page": "history"})
             return HTMLResponse(html)
 
 

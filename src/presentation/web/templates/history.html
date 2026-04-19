@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block title %}作业记录 - AI助教系统{% endblock %}
+
+{% block extra_css %}
+.history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.history-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: 2px solid transparent;
+}
+
+.history-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    border-color: #667eea;
+}
+
+.history-card .thumbnail {
+    width: 100%;
+    height: 160px;
+    object-fit: cover;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 3rem;
+}
+
+.history-card .thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.history-card .info {
+    padding: 16px;
+}
+
+.history-card .info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.history-card .subject-badge {
+    font-size: 0.8rem;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+    background: #f0f3ff;
+    color: #667eea;
+}
+
+.history-card .status-badge {
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.status-completed {
+    background: #d4edda;
+    color: #155724;
+}
+
+.status-processing {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-pending {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.status-failed {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.history-card .time {
+    font-size: 0.85rem;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+.history-card .stats {
+    display: flex;
+    gap: 12px;
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.history-card .stats span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.history-card .accuracy-bar {
+    margin-top: 10px;
+    height: 6px;
+    background: #e0e0e0;
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.history-card .accuracy-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.5s;
+}
+
+.history-card .accuracy-text {
+    margin-top: 6px;
+    font-size: 0.8rem;
+    text-align: right;
+    color: #666;
+}
+
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+    align-items: flex-end;
+}
+
+.filter-bar .form-group {
+    margin-bottom: 0;
+    flex: 1;
+    min-width: 140px;
+}
+
+.filter-bar .form-group label {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 4px;
+}
+
+.filter-bar .form-input,
+.filter-bar .form-select {
+    padding: 10px 14px;
+    font-size: 0.95rem;
+}
+
+.filter-bar .btn {
+    padding: 10px 20px;
+    font-size: 0.95rem;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #888;
+}
+
+.empty-state .icon {
+    font-size: 4rem;
+    margin-bottom: 16px;
+}
+
+.load-more {
+    text-align: center;
+    margin-top: 30px;
+}
+
+.summary-bar {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.summary-bar .summary-item {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 12px;
+    min-width: 120px;
+    text-align: center;
+}
+
+.summary-bar .summary-item .value {
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+
+.summary-bar .summary-item .label {
+    font-size: 0.85rem;
+    opacity: 0.9;
+    margin-top: 4px;
+}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-title">📋 作业诊断记录</div>
+    
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+        <div class="form-group">
+            <label>学生ID</label>
+            <input type="text" id="filterStudent" class="form-input" placeholder="输入学生ID" value="test_student_001">
+        </div>
+        <div class="form-group">
+            <label>学科</label>
+            <select id="filterSubject" class="form-select">
+                <option value="">全部学科</option>
+                <option value="math">数学</option>
+                <option value="chinese">语文</option>
+                <option value="english">英语</option>
+                <option value="physics">物理</option>
+                <option value="chemistry">化学</option>
+                <option value="biology">生物</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>状态</label>
+            <select id="filterStatus" class="form-select">
+                <option value="">全部状态</option>
+                <option value="completed">已完成</option>
+                <option value="processing">处理中</option>
+                <option value="pending">待处理</option>
+                <option value="failed">失败</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>开始日期</label>
+            <input type="date" id="filterStart" class="form-input">
+        </div>
+        <div class="form-group">
+            <label>结束日期</label>
+            <input type="date" id="filterEnd" class="form-input">
+        </div>
+        <button class="btn btn-primary" onclick="loadHistory(true)">🔍 查询</button>
+    </div>
+    
+    <!-- 统计摘要 -->
+    <div id="summaryBar" class="summary-bar" style="display:none;">
+        <div class="summary-item">
+            <div class="value" id="sumTotal">0</div>
+            <div class="label">总作业</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="sumCompleted">0</div>
+            <div class="label">已完成</div>
+        </div>
+        <div class="summary-item">
+            <div class="value" id="sumAccuracy">0%</div>
+            <div class="label">平均正确率</div>
+        </div>
+    </div>
+    
+    <!-- 列表 -->
+    <div id="historyList" class="history-grid"></div>
+    
+    <!-- 加载更多 -->
+    <div id="loadMore" class="load-more" style="display:none;">
+        <button class="btn btn-secondary" onclick="loadHistory(false)">加载更多</button>
+    </div>
+    
+    <!-- 空状态 -->
+    <div id="emptyState" class="empty-state" style="display:none;">
+        <div class="icon">📭</div>
+        <p>暂无作业记录</p>
+        <p style="font-size: 0.9rem; margin-top: 8px;">上传作业后将在此显示诊断历史</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+let currentCursor = null;
+let currentFilters = {};
+let allItems = [];
+
+function formatDate(timestamp) {
+    if (!timestamp) return '-';
+    const d = new Date(timestamp * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+function getSubjectLabel(subject) {
+    const map = {
+        math: '数学', chinese: '语文', english: '英语',
+        physics: '物理', chemistry: '化学', biology: '生物'
+    };
+    return map[subject] || subject;
+}
+
+function getStatusClass(status) {
+    const map = {
+        completed: 'status-completed',
+        processing: 'status-processing',
+        pending: 'status-pending',
+        failed: 'status-failed'
+    };
+    return map[status] || 'status-pending';
+}
+
+function getStatusLabel(status) {
+    const map = {
+        completed: '已完成',
+        processing: '处理中',
+        pending: '待处理',
+        failed: '失败'
+    };
+    return map[status] || status;
+}
+
+function getAccuracyColor(rate) {
+    if (rate >= 0.8) return '#38ef7d';
+    if (rate >= 0.6) return '#feca57';
+    return '#ff6b6b';
+}
+
+function renderCard(item) {
+    const accuracy = item.total_count > 0 ? (item.total_count - item.error_count) / item.total_count : 0;
+    const accuracyPct = Math.round(accuracy * 100);
+    const thumb = item.thumbnail_url ? `<img src="${item.thumbnail_url}" alt="作业图片" onerror="this.parentElement.innerHTML='📄'">` : '📄';
+    
+    return `
+        <div class="history-card" onclick="window.location.href='/web/result/${item.homework_id}'">
+            <div class="thumbnail">${thumb}</div>
+            <div class="info">
+                <div class="info-header">
+                    <span class="subject-badge">${getSubjectLabel(item.subject)}</span>
+                    <span class="status-badge ${getStatusClass(item.status)}">${getStatusLabel(item.status)}</span>
+                </div>
+                <div class="time">${formatDate(item.created_at)}</div>
+                <div class="stats">
+                    <span>📄 ${item.total_count}题</span>
+                    <span>❌ ${item.error_count}错</span>
+                </div>
+                <div class="accuracy-bar">
+                    <div class="accuracy-fill" style="width:${accuracyPct}%; background:${getAccuracyColor(accuracy)}"></div>
+                </div>
+                <div class="accuracy-text">正确率 ${accuracyPct}%</div>
+            </div>
+        </div>
+    `;
+}
+
+function updateSummary(items) {
+    const total = items.length;
+    const completed = items.filter(i => i.status === 'completed').length;
+    const completedItems = items.filter(i => i.status === 'completed' && i.total_count > 0);
+    const avgAccuracy = completedItems.length > 0
+        ? Math.round(completedItems.reduce((s, i) => s + (i.total_count - i.error_count) / i.total_count, 0) / completedItems.length * 100)
+        : 0;
+    
+    document.getElementById('sumTotal').textContent = total;
+    document.getElementById('sumCompleted').textContent = completed;
+    document.getElementById('sumAccuracy').textContent = avgAccuracy + '%';
+    document.getElementById('summaryBar').style.display = total > 0 ? 'flex' : 'none';
+}
+
+async function loadHistory(reset = false) {
+    const btn = document.querySelector('.filter-bar .btn');
+    if (reset) {
+        currentCursor = null;
+        allItems = [];
+        showLoading(btn, '查询中...');
+    } else {
+        showLoading(document.querySelector('#loadMore .btn'), '加载中...');
+    }
+    
+    try {
+        const studentId = document.getElementById('filterStudent').value.trim();
+        if (!studentId) {
+            showAlert('请输入学生ID', 'error');
+            return;
+        }
+        
+        const params = new URLSearchParams({
+            student_id: studentId,
+            limit: '20'
+        });
+        
+        const subject = document.getElementById('filterSubject').value;
+        const status = document.getElementById('filterStatus').value;
+        const start = document.getElementById('filterStart').value;
+        const end = document.getElementById('filterEnd').value;
+        
+        if (subject) params.append('subject', subject);
+        if (status) params.append('status', status);
+        if (start) params.append('start_date', start);
+        if (end) params.append('end_date', end);
+        if (currentCursor) params.append('cursor', currentCursor);
+        
+        const data = await apiRequest(`${API_BASE}/homework?${params}`);
+        const items = data.list || [];
+        
+        if (reset) {
+            document.getElementById('historyList').innerHTML = '';
+        }
+        
+        if (items.length === 0 && reset) {
+            document.getElementById('emptyState').style.display = 'block';
+            document.getElementById('loadMore').style.display = 'none';
+            document.getElementById('summaryBar').style.display = 'none';
+            return;
+        }
+        
+        document.getElementById('emptyState').style.display = 'none';
+        
+        const html = items.map(renderCard).join('');
+        document.getElementById('historyList').insertAdjacentHTML('beforeend', html);
+        
+        allItems = allItems.concat(items);
+        updateSummary(allItems);
+        
+        currentCursor = data.pagination?.next_cursor || null;
+        document.getElementById('loadMore').style.display = currentCursor ? 'block' : 'none';
+        
+    } catch (err) {
+        if (reset) {
+            showAlert(err.message || '加载失败', 'error');
+            document.getElementById('emptyState').style.display = 'block';
+        }
+    } finally {
+        if (reset) hideLoading(btn);
+        else hideLoading(document.querySelector('#loadMore .btn'));
+    }
+}
+
+// 页面加载时自动查询（如果URL中有student_id参数）
+document.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const sid = urlParams.get('student_id');
+    if (sid) {
+        document.getElementById('filterStudent').value = sid;
+    }
+    // 默认查询最近7天
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    document.getElementById('filterEnd').value = today.toISOString().split('T')[0];
+    document.getElementById('filterStart').value = weekAgo.toISOString().split('T')[0];
+    
+    loadHistory(true);
+});
+{% endblock %}

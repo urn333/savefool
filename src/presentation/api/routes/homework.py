@@ -7,8 +7,10 @@ import os
 import shutil
 import uuid
 import base64
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
+
+from sqlalchemy import func, select
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.background import BackgroundTasks
@@ -19,6 +21,7 @@ from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger
 from src.infrastructure.models import create_model_client
 from src.infrastructure.storage.database import db_manager
+from src.infrastructure.db.homework import Homework
 from src.domain.engines.ocr_engine import OCREngine, OCROptions
 from src.domain.engines.layout_analyzer import LayoutAnalyzer, diagnose_single_question
 from src.presentation.api.exceptions import (
@@ -1556,6 +1559,8 @@ async def list_homework(
     student_id: str = Query(..., description="学生ID"),
     subject: Optional[SubjectType] = Query(None, description="学科筛选"),
     status: Optional[HomeworkStatus] = Query(None, description="状态筛选"),
+    start_date: Optional[str] = Query(None, description="开始日期(YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="结束日期(YYYY-MM-DD)"),
     cursor: Optional[str] = Query(None, description="分页游标"),
     limit: int = Query(20, ge=1, le=100, description="每页数量"),
 ) -> BaseResponse:
@@ -1565,39 +1570,54 @@ async def list_homework(
         student_id: 学生ID
         subject: 学科筛选（可选）
         status: 状态筛选（可选）
+        start_date: 开始日期 YYYY-MM-DD（可选）
+        end_date: 结束日期 YYYY-MM-DD（可选）
         cursor: 分页游标（可选）
         limit: 每页数量（默认20，最大100）
         
     Returns:
         作业列表
     """
-    # 从数据库查询作业列表
-    try:
-        async with db_manager.session() as session:
-            hw_service = HomeworkService(session)
-            subject_str = subject.value if subject else None
-            status_str = status.value if status else None
-            items = await hw_service.list_homeworks(
-                student_id=student_id,
-                subject=subject_str,
-                status=status_str,
-                limit=limit,
-                offset=int(cursor) if cursor else 0,
-            )
-            total = await hw_service.count_homeworks(
-                student_id=student_id,
-                subject=subject_str,
-                status=status_str,
-            )
-    except Exception as e:
-        logger.error("list_homework_db_failed", student_id=student_id, error=str(e))
-        # fallback 到缓存
-        items = []
-        total = 0
+    offset = int(cursor) if cursor else 0
     
-    start_idx = int(cursor) if cursor else 0
-    has_more = total > start_idx + limit
-    next_cursor = str(start_idx + limit) if has_more else None
+    async with db_manager.session() as session:
+        # 构建基础查询
+        stmt = select(Homework).where(Homework.student_id == student_id)
+        count_stmt = select(func.count()).select_from(Homework).where(Homework.student_id == student_id)
+        
+        if subject:
+            stmt = stmt.where(Homework.subject == subject.value)
+            count_stmt = count_stmt.where(Homework.subject == subject.value)
+        if status:
+            stmt = stmt.where(Homework.status == status.value)
+            count_stmt = count_stmt.where(Homework.status == status.value)
+        if start_date:
+            try:
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                stmt = stmt.where(Homework.created_at >= start_dt)
+                count_stmt = count_stmt.where(Homework.created_at >= start_dt)
+            except ValueError:
+                raise ValidationException(message="start_date 格式错误，应为 YYYY-MM-DD")
+        if end_date:
+            try:
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
+                stmt = stmt.where(Homework.created_at < end_dt)
+                count_stmt = count_stmt.where(Homework.created_at < end_dt)
+            except ValueError:
+                raise ValidationException(message="end_date 格式错误，应为 YYYY-MM-DD")
+        
+        # 排序和分页
+        stmt = stmt.order_by(Homework.created_at.desc()).offset(offset).limit(limit)
+        
+        result = await session.execute(stmt)
+        items = result.scalars().all()
+        
+        total_result = await session.execute(count_stmt)
+        total = total_result.scalar()
+    
+    hw_service = HomeworkService(session)
+    has_more = total > offset + limit
+    next_cursor = str(offset + limit) if has_more else None
     
     # 转换为响应模型
     summaries = []
