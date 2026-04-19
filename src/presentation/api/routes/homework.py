@@ -13,9 +13,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.background import BackgroundTasks
 
+from src.application.services.homework_service import HomeworkService
+from src.application.services.memory_service import MemoryService
 from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger
 from src.infrastructure.models import create_model_client
+from src.infrastructure.storage.database import db_manager
 from src.domain.engines.ocr_engine import OCREngine, OCROptions
 from src.domain.engines.layout_analyzer import LayoutAnalyzer, diagnose_single_question
 from src.presentation.api.exceptions import (
@@ -44,10 +47,55 @@ logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
 
-# 内存存储（实际项目应使用数据库）
-_homework_store: dict = {}
-_processing_tasks: dict = {}
-_progress_store: dict = {}  # 进度存储: homework_id -> {"stage": "", "progress": 0, "message": ""}
+# 进度存储（内存，实时性要求高）
+_progress_store: dict = {}
+
+
+async def _persist_homework_result(homework_id: str, **kwargs) -> None:
+    """将作业结果持久化到数据库.
+    
+    同时更新内存缓存 _homework_store。
+    
+    Args:
+        homework_id: 作业ID
+        **kwargs: 要更新的字段
+    """
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            status = kwargs.get("status")
+            await hw_service.update_homework_status(homework_id, status, **kwargs)
+    except Exception as e:
+        logger.error("persist_homework_failed", homework_id=homework_id, error=str(e))
+    
+    # 同时更新内存缓存
+    if homework_id in _homework_store:
+        _homework_store[homework_id].update(kwargs)
+
+
+async def _ensure_homework_in_cache(homework_id: str) -> bool:
+    """确保作业在内存缓存中，不在则从数据库加载.
+    
+    Args:
+        homework_id: 作业ID
+        
+    Returns:
+        是否成功加载
+    """
+    if homework_id in _homework_store:
+        return True
+    
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            homework = await hw_service.get_homework(homework_id)
+            if homework:
+                _homework_store[homework_id] = hw_service.homework_to_dict(homework)
+                return True
+    except Exception as e:
+        logger.error("load_homework_to_cache_failed", homework_id=homework_id, error=str(e))
+    
+    return False
 
 
 def _update_progress(homework_id: str, stage: str, progress: int, message: str) -> None:
@@ -393,8 +441,11 @@ async def _process_diagnosis(
             logger.info("model_client_ready", provider=settings.active_model_provider)
         except ValueError as e:
             logger.error("api_key_error", error=str(e))
-            _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
-            _homework_store[homework_id]["error_message"] = str(e)
+            await _persist_homework_result(
+                homework_id,
+                status=HomeworkStatus.FAILED.value,
+                error_message=str(e),
+            )
             return
         
         # 智能诊断模式：尝试自动分题逐题诊断（提高多题准确率）
@@ -519,7 +570,21 @@ async def _process_diagnosis(
             _update_progress(homework_id, "preprocessing", 15, "正在预处理图像...")
             
             # 检查是否已有预处理后的图片（upload 阶段已生成）
+            # 优先从缓存读取预处理路径，否则查数据库
             stored_proc_path = _homework_store.get(homework_id, {}).get("processed_image_path")
+            if not stored_proc_path:
+                try:
+                    async with db_manager.session() as session:
+                        hw_service = HomeworkService(session)
+                        homework = await hw_service.get_homework(homework_id)
+                        if homework and homework.processed_image_url:
+                            # 从 processed_image_url 推断路径
+                            stored_proc_path = os.path.join(
+                                settings.UPLOAD_DIR or "./uploads", "homework",
+                                os.path.basename(homework.processed_image_url)
+                            )
+                except Exception:
+                    stored_proc_path = None
             if stored_proc_path and os.path.exists(stored_proc_path):
                 logger.info("using_stored_processed_image", homework_id=homework_id, path=stored_proc_path)
                 try:
@@ -576,7 +641,15 @@ async def _process_diagnosis(
             # 优先使用已预处理的图片进行 OCR
             ocr_image_path = stored_proc_path if stored_proc_path and os.path.exists(stored_proc_path) else image_path
             # 从 _homework_store 中读取学科信息
-            hw_subject = _homework_store.get(homework_id, {}).get("subject", "math")
+            hw_subject = _homework_store.get(homework_id, {}).get("subject")
+            if not hw_subject:
+                try:
+                    async with db_manager.session() as session:
+                        hw_service = HomeworkService(session)
+                        homework = await hw_service.get_homework(homework_id)
+                        hw_subject = homework.subject if homework else "math"
+                except Exception:
+                    hw_subject = "math"
             ocr_result = await ocr_engine.recognize(ocr_image_path, subject_hint=hw_subject)
             if ocr_result.success and ocr_result.content:
                 ocr_text = ocr_result.content
@@ -586,7 +659,18 @@ async def _process_diagnosis(
         except Exception as e:
             logger.warning("ocr_error", homework_id=homework_id, error=str(e))
         
-        # 步骤3: Kimi直接诊断（根据模式选择不同提示词）
+        # 步骤3: 查询学生历史薄弱环节（结构化查询，增强诊断针对性）
+        weak_points_prompt = ""
+        try:
+            async with db_manager.session() as session:
+                memory_service = MemoryService(session)
+                weak_points_prompt = await memory_service.format_weak_points_for_prompt(
+                    student_id, subject=hw_subject
+                )
+        except Exception as e:
+            logger.warning("weak_points_query_failed", student_id=student_id, error=str(e))
+        
+        # 步骤4: Kimi直接诊断（根据模式选择不同提示词）
         logger.info("kimi_diagnosis_start", homework_id=homework_id, mode=mode.value)
         _update_progress(homework_id, "diagnosis", 40, "Kimi正在分析...")
         
@@ -594,6 +678,10 @@ async def _process_diagnosis(
         mode_config = MODE_PROMPTS[mode]
         system_prompt = mode_config["system_prompt"]
         user_content = mode_config["user_template"]
+        
+        # 添加薄弱环节信息（结构化查询结果）
+        if weak_points_prompt:
+            user_content += f"\n\n{weak_points_prompt}"
         
         # 添加 OCR 提取的文字（关键：让模型不用自己"看图识字"）
         if ocr_text:
@@ -829,6 +917,40 @@ async def _process_diagnosis(
             
             _homework_store[homework_id]["raw_model_response"] = raw_response
         
+        # 持久化到数据库并记录到记忆系统
+        try:
+            async with db_manager.session() as session:
+                hw_service = HomeworkService(session)
+                memory_service = MemoryService(session)
+                
+                cached = _homework_store.get(homework_id, {})
+                questions_data = []
+                if mode == DiagnosisMode.SINGLE:
+                    questions_data = cached.get("questions", [])
+                elif mode == DiagnosisMode.DIAGNOSIS:
+                    questions_data = cached.get("diagnosis_result", {}).get("questions_detail", [])
+                else:
+                    questions_data = cached.get("solution_result", {}).get("questions_detail", [])
+                
+                await hw_service.update_homework_status(
+                    homework_id,
+                    status=HomeworkStatus.COMPLETED.value,
+                    diagnosis_mode=mode.value,
+                    diagnosis_result=cached.get("diagnosis_result") or cached.get("solution_result") or cached.get("single_analysis"),
+                    error_count=cached.get("error_count", 0),
+                    total_count=cached.get("total_count", 0),
+                    raw_model_response=raw_response,
+                )
+                
+                if questions_data:
+                    await memory_service.record_diagnosis_result(
+                        student_id=student_id,
+                        homework_id=homework_id,
+                        questions_data=questions_data,
+                    )
+        except Exception as persist_err:
+            logger.error("diagnosis_persistence_failed", homework_id=homework_id, error=str(persist_err))
+        
         logger.info("diagnosis_task_complete", homework_id=homework_id, elapsed_time=elapsed_time, mode=mode.value)
         
     except Exception as e:
@@ -837,6 +959,15 @@ async def _process_diagnosis(
         if homework_id in _homework_store:
             _homework_store[homework_id]["status"] = HomeworkStatus.FAILED.value
             _homework_store[homework_id]["error_message"] = str(e)
+        # 持久化失败状态
+        try:
+            await _persist_homework_result(
+                homework_id,
+                status=HomeworkStatus.FAILED.value,
+                error_message=str(e),
+            )
+        except Exception:
+            pass
 
 
 async def _process_per_question_diagnosis(
@@ -1035,6 +1166,31 @@ async def _process_per_question_diagnosis(
             ]
             _homework_store[homework_id]["error_count"] = error_count
             _homework_store[homework_id]["total_count"] = len(questions_data)
+        
+        # 持久化到数据库并记录到记忆系统
+        try:
+            async with db_manager.session() as session:
+                hw_service = HomeworkService(session)
+                memory_service = MemoryService(session)
+                
+                cached = _homework_store.get(homework_id, {})
+                await hw_service.update_homework_status(
+                    homework_id,
+                    status=HomeworkStatus.COMPLETED.value,
+                    diagnosis_mode=DiagnosisMode.DIAGNOSIS.value,
+                    diagnosis_result=cached.get("diagnosis_result"),
+                    error_count=cached.get("error_count", 0),
+                    total_count=cached.get("total_count", 0),
+                )
+                
+                if questions_data:
+                    await memory_service.record_diagnosis_result(
+                        student_id=student_id,
+                        homework_id=homework_id,
+                        questions_data=questions_data,
+                    )
+        except Exception as persist_err:
+            logger.error("per_question_persistence_failed", homework_id=homework_id, error=str(persist_err))
 
         return True
 
@@ -1194,6 +1350,24 @@ async def upload_homework(
         "questions": [],
     }
     
+    # 同时持久化到数据库
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            await hw_service.create_homework(
+                student_id=student_id,
+                subject=subject.value,
+                image_url=f"/uploads/homework/{os.path.basename(image_path)}",
+                processed_image_url=processed_image_url,
+                processed_image_path=proc_path if processed_image_url else None,
+                parent_description=description,
+                diagnosis_mode=mode.value,
+                homework_id=homework_id,
+            )
+            # 更新 homework_id 为数据库生成的（但我们需要保持前端传入的一致，所以这里不需要）
+    except Exception as db_err:
+        logger.error("homework_db_create_failed", homework_id=homework_id, error=str(db_err))
+    
     logger.info(
         "homework_created",
         homework_id=homework_id,
@@ -1248,8 +1422,11 @@ async def start_analysis(
         NotFoundException: 作业不存在
         ValidationException: 作业状态不允许启动分析
     """
+    # 优先从缓存读取，否则从数据库加载
     if homework_id not in _homework_store:
-        raise NotFoundException(resource_type="作业", resource_id=homework_id)
+        loaded = await _ensure_homework_in_cache(homework_id)
+        if not loaded:
+            raise NotFoundException(resource_type="作业", resource_id=homework_id)
     
     hw = _homework_store[homework_id]
     
@@ -1271,9 +1448,20 @@ async def start_analysis(
         except json.JSONDecodeError:
             raise ValidationException(message="框选区域格式错误")
     
-    # 更新状态为处理中
+    # 更新状态为处理中（同时更新数据库）
     hw["status"] = HomeworkStatus.PROCESSING.value
     hw["error_message"] = None
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            await hw_service.update_homework_status(
+                homework_id,
+                status=HomeworkStatus.PROCESSING.value,
+                parent_description=hw.get("parent_description"),
+                diagnosis_mode=hw["diagnosis_mode"],
+            )
+    except Exception as db_err:
+        logger.error("start_analysis_db_update_failed", homework_id=homework_id, error=str(db_err))
     
     # 启动后台诊断任务
     background_tasks.add_task(
@@ -1327,47 +1515,50 @@ async def list_homework(
     Returns:
         作业列表
     """
-    # 筛选作业
-    filtered = [
-        hw for hw in _homework_store.values()
-        if hw["student_id"] == student_id
-    ]
+    # 从数据库查询作业列表
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            subject_str = subject.value if subject else None
+            status_str = status.value if status else None
+            items = await hw_service.list_homeworks(
+                student_id=student_id,
+                subject=subject_str,
+                status=status_str,
+                limit=limit,
+                offset=int(cursor) if cursor else 0,
+            )
+            total = await hw_service.count_homeworks(
+                student_id=student_id,
+                subject=subject_str,
+                status=status_str,
+            )
+    except Exception as e:
+        logger.error("list_homework_db_failed", student_id=student_id, error=str(e))
+        # fallback 到缓存
+        items = []
+        total = 0
     
-    if subject:
-        filtered = [hw for hw in filtered if hw["subject"] == subject.value]
-    
-    if status:
-        filtered = [hw for hw in filtered if hw["status"] == status.value]
-    
-    # 按创建时间倒序
-    filtered.sort(key=lambda x: x["created_at"], reverse=True)
-    
-    # 游标分页（简化实现）
-    start_idx = 0
-    if cursor:
-        try:
-            start_idx = int(cursor)
-        except ValueError:
-            pass
-    
-    items = filtered[start_idx:start_idx + limit]
-    has_more = len(filtered) > start_idx + limit
+    start_idx = int(cursor) if cursor else 0
+    has_more = total > start_idx + limit
     next_cursor = str(start_idx + limit) if has_more else None
     
     # 转换为响应模型
-    summaries = [
-        HomeworkSummary(
-            homework_id=hw["homework_id"],
-            subject=hw["subject"],
-            status=HomeworkStatus(hw["status"]),
-            thumbnail_url=hw.get("image_url"),
-            created_at=hw["created_at"],
-            completed_at=hw.get("completed_at"),
-            error_count=hw.get("error_count", 0),
-            total_count=hw.get("total_count", 0),
-        ).model_dump()
-        for hw in items
-    ]
+    summaries = []
+    for homework in items:
+        hw_dict = hw_service.homework_to_dict(homework)
+        summaries.append(
+            HomeworkSummary(
+                homework_id=hw_dict["homework_id"],
+                subject=hw_dict["subject"],
+                status=HomeworkStatus(hw_dict["status"]),
+                thumbnail_url=hw_dict.get("image_url"),
+                created_at=hw_dict["created_at"],
+                completed_at=hw_dict.get("completed_at"),
+                error_count=hw_dict.get("error_count", 0),
+                total_count=hw_dict.get("total_count", 0),
+            ).model_dump()
+        )
     
     return BaseResponse(
         code=0,
@@ -1377,7 +1568,7 @@ async def list_homework(
             "pagination": PaginationData(
                 has_more=has_more,
                 next_cursor=next_cursor,
-                total=len(filtered),
+                total=total,
             ).model_dump(),
         }
     )
@@ -1401,8 +1592,11 @@ async def get_homework(homework_id: str) -> BaseResponse:
     Raises:
         NotFoundException: 作业不存在
     """
+    # 优先从缓存读取，否则从数据库加载
     if homework_id not in _homework_store:
-        raise NotFoundException(resource_type="作业", resource_id=homework_id)
+        loaded = await _ensure_homework_in_cache(homework_id)
+        if not loaded:
+            raise NotFoundException(resource_type="作业", resource_id=homework_id)
     
     hw = _homework_store[homework_id]
     
@@ -1469,10 +1663,24 @@ async def delete_homework(homework_id: str) -> BaseResponse:
     Raises:
         NotFoundException: 作业不存在
     """
-    if homework_id not in _homework_store:
+    # 先检查缓存，再检查数据库
+    in_cache = homework_id in _homework_store
+    in_db = False
+    try:
+        async with db_manager.session() as session:
+            hw_service = HomeworkService(session)
+            homework = await hw_service.get_homework(homework_id)
+            in_db = homework is not None
+            if homework:
+                await hw_service.delete_homework(homework_id)
+    except Exception as e:
+        logger.error("delete_homework_db_failed", homework_id=homework_id, error=str(e))
+    
+    if not in_cache and not in_db:
         raise NotFoundException(resource_type="作业", resource_id=homework_id)
     
-    del _homework_store[homework_id]
+    if in_cache:
+        del _homework_store[homework_id]
     
     logger.info("homework_deleted", homework_id=homework_id)
     
@@ -1498,9 +1706,26 @@ async def get_homework_progress(homework_id: str) -> BaseResponse:
     Returns:
         进度信息
     """
-    # 检查作业是否存在
-    if homework_id not in _homework_store:
-        raise NotFoundException(resource_type="作业", resource_id=homework_id)
+    # 获取作业状态（优先缓存，否则数据库）
+    status = None
+    error_message = None
+    if homework_id in _homework_store:
+        status = _homework_store[homework_id]["status"]
+        error_message = _homework_store[homework_id].get("error_message")
+    else:
+        try:
+            async with db_manager.session() as session:
+                hw_service = HomeworkService(session)
+                homework = await hw_service.get_homework(homework_id)
+                if homework:
+                    status = homework.status
+                else:
+                    raise NotFoundException(resource_type="作业", resource_id=homework_id)
+        except NotFoundException:
+            raise
+        except Exception as e:
+            logger.error("progress_db_query_failed", homework_id=homework_id, error=str(e))
+            raise NotFoundException(resource_type="作业", resource_id=homework_id)
     
     # 获取进度
     progress = _progress_store.get(homework_id, {
@@ -1509,11 +1734,7 @@ async def get_homework_progress(homework_id: str) -> BaseResponse:
         "message": "等待开始...",
     })
     
-    # 获取作业状态
-    hw = _homework_store[homework_id]
-    status = hw["status"]
-    
-    # 如果已完成，进度设为100
+    # 如果已完成或失败，更新进度显示
     if status == HomeworkStatus.COMPLETED.value:
         progress = {
             "stage": "complete",
@@ -1524,7 +1745,7 @@ async def get_homework_progress(homework_id: str) -> BaseResponse:
         progress = {
             "stage": "error",
             "progress": 0,
-            "message": hw.get("error_message", "诊断失败"),
+            "message": error_message or "诊断失败",
         }
     
     return BaseResponse(

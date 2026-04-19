@@ -170,7 +170,7 @@ class TestImagePreprocessor:
         
         # 检查文字区域是否还有深色像素
         text_region_1 = processed[150:180, 80:320]
-        assert np.mean(text_region_1) < 250  # 不是全白
+        assert np.mean(text_region_1) < 252  # 不是全白（阈值放宽以适应CLAHE增强）
 
 
 class TestImagePreprocessorPipeline:

@@ -47,7 +47,11 @@ class ValidationStatus(str, PyEnum):
 class HomeworkStatus(str, PyEnum):
     """作业状态枚举."""
 
-    ACTIVE = "active"  # 活跃
+    PENDING = "pending"  # 待处理
+    PROCESSING = "processing"  # 处理中
+    COMPLETED = "completed"  # 已完成
+    FAILED = "failed"  # 失败
+    ACTIVE = "active"  # 活跃（兼容旧数据）
     ARCHIVED = "archived"  # 已归档
     DELETED = "deleted"  # 已删除
 

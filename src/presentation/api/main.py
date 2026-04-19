@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.infrastructure.config import get_settings
 from src.infrastructure.logging import get_logger, configure_logging
+from src.infrastructure.storage.database import db_manager
 from src.presentation.api.exceptions import register_exception_handlers
 from src.presentation.api.schemas import BaseResponse, HealthCheckResponse
 from src.presentation.api.routes import homework, diagnosis, variant, statistics
@@ -42,6 +43,14 @@ async def lifespan(app: FastAPI):
         debug=settings.debug,
         api_prefix=settings.api_prefix,
     )
+    
+    # 初始化数据库表
+    try:
+        await db_manager.create_tables()
+        logger.info("database_tables_created")
+    except Exception as e:
+        logger.error("database_tables_creation_failed", error=str(e))
+        raise
     
     yield
     

@@ -43,6 +43,30 @@ class Homework(Base):
         default=HomeworkStatus.ACTIVE.value,
         comment="状态: active/archived/deleted",
     )
+    processed_image_url: Mapped[Optional[str]] = mapped_column(
+        String(512), nullable=True, comment="预处理后图片URL"
+    )
+    parent_description: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="家长描述"
+    )
+    diagnosis_mode: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True, comment="诊断模式"
+    )
+    diagnosis_result: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, comment="诊断结果JSON"
+    )
+    error_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="错题数量"
+    )
+    total_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="总题数"
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="完成时间"
+    )
+    raw_model_response: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="模型原始响应"
+    )
     archived_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, comment="归档时间"
     )
@@ -66,7 +90,9 @@ class Homework(Base):
     __table_args__ = (
         CheckConstraint("page_count > 0", name="ck_homework_page_count"),
         CheckConstraint(
-            f"status IN ('{HomeworkStatus.ACTIVE.value}', '{HomeworkStatus.ARCHIVED.value}', '{HomeworkStatus.DELETED.value}')",
+            f"status IN ('{HomeworkStatus.PENDING.value}', '{HomeworkStatus.PROCESSING.value}', "
+            f"'{HomeworkStatus.COMPLETED.value}', '{HomeworkStatus.FAILED.value}', "
+            f"'{HomeworkStatus.ACTIVE.value}', '{HomeworkStatus.ARCHIVED.value}', '{HomeworkStatus.DELETED.value}')",
             name="ck_homework_status",
         ),
         Index("idx_homework_student", "student_id", "uploaded_at"),
