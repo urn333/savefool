@@ -11,8 +11,8 @@
 - [x] 目录结构创建
 - [x] Git初始化
 - [x] 依赖配置
-- [ ] 基础工具类
-- [ ] 配置管理
+- [x] 基础工具类（generate_id, now_timestamp 等）
+- [x] 配置管理（Pydantic-Settings, .env）
 
 ### Phase 1: 数据层
 **目标**: 建立完整的数据存储基础
@@ -99,31 +99,48 @@
 
 ---
 
-### Phase 6: Web API层
-**目标**: 提供RESTful API接口
+### Phase 6: Web API层与记忆系统集成 ✅ (进行中)
+**目标**: 提供RESTful API接口，启用数据库持久化，接入记忆系统
 
-**开发任务**:
-- FastAPI应用框架
-- 作业上传接口
-- 诊断结果接口
-- 变形题接口
-- 统计接口
+**已完成 (Phase 6-1)**:
+- [x] FastAPI应用框架 + lifespan 数据库建表
+- [x] 扩展 HomeworkStatus 枚举（PENDING/PROCESSING/COMPLETED/FAILED）
+- [x] 扩展 Homework 模型（诊断结果、错误计数等字段）
+- [x] 新建 HomeworkService（替代内存存储 _homework_store）
+- [x] 新建 MemoryService（封装记忆系统查询/写入）
+- [x] 诊断流程接入记忆读取（薄弱环节结构化查询拼入 Kimi prompt）
+- [x] 诊断流程接入记忆写入（掌握度更新、认知缺口创建）
+
+**已完成 (Phase 6-2)**:
+- [x] 统计页从真实数据库数据生成（替换 random mock）
+  - [x] /overview: homework 表聚合统计
+  - [x] /trends: 按周聚合正确率/掌握度趋势
+  - [x] /weak-points: cognitive_gap + student_knowledge_mastery 真实查询
+  - [x] /knowledge-graph: student_knowledge_mastery 节点构建
+
+**待完成**:
+- [ ] Phase 6-3: 诊断时读取掌握度影响诊断选项
+- [ ] Phase 6-4: 结果页展示历史薄弱点关联
+- [ ] Phase 6-5: 结晶机制定时触发（pending → crystallized）
 
 **测试要求**:
 - API单元测试
 - 集成测试
 - 限流测试
+- 当前: 482 passed, coverage 66%
 
 ---
 
 ### Phase 7: 24小时结晶机制
 **目标**: 实现记忆数据自动结晶
 
+**状态**: 核心代码已实现（crystallization/ 目录），待接入定时调度
+
 **开发任务**:
-- 定时任务调度
-- 结晶条件判定
-- 数据压缩(auto-compact)
-- 状态流转(pending → crystallized/dismissed)
+- [ ] 定时任务调度（APScheduler 或诊断时检查）
+- [x] 结晶条件判定（已实现）
+- [x] 数据压缩(auto-compact)（已实现）
+- [x] 状态流转(pending → crystallized/dismissed)（已实现）
 
 **测试要求**:
 - 结晶条件判定测试
